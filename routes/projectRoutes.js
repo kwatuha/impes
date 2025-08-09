@@ -15,6 +15,8 @@ const projectSchedulingRoutes = require('./projectSchedulingRoutes');
 const projectCategoryRoutes = require('./metadata/projectCategoryRoutes');
 const projectWarningRoutes = require('./projectWarningRoutes');
 const projectProposalRatingRoutes = require('./projectProposalRatingRoutes');
+// CORRECTED: Import both routers from the projectPhotoRoutes file
+const { projectRouter: projectPhotoRouter, photoRouter } = require('./projectPhotoRoutes'); 
 
 // Base SQL query for project details with all left joins
 const BASE_PROJECT_SELECT_JOINS = `
@@ -145,6 +147,8 @@ router.use('/projproposalratings', projectProposalRatingRoutes);
 router.use('/:projectId/counties', projectCountiesRouter);
 router.use('/:projectId/subcounties', projectSubcountiesRouter);
 router.use('/:projectId/wards', projectWardsRouter);
+// CORRECTED: Mount the project-specific photo router here
+router.use('/:projectId/photos', projectPhotoRouter);
 
 /**
  * @route GET /api/projects/

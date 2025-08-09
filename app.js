@@ -1,4 +1,3 @@
-// app.js
 const express = require('express');
 const bodyParser = require('body-parser');
 const authenticate = require('./middleware/authenticate'); // Authentication middleware
@@ -19,9 +18,7 @@ const taskRoutes = require('./routes/taskRoutes');
 const milestoneRoutes = require('./routes/milestoneRoutes');
 const taskAssigneesRoutes = require('./routes/taskAssigneesRoutes');
 const taskDependenciesRoutes = require('./routes/taskDependenciesRoutes');
-const publicStrategyRoutes = require('./routes/publicStrategyRoutes'); // For public strategic planning routes (e.g., template download)
-
-// NEW: Import new modular project-related routes
+const publicStrategyRoutes = require('./routes/publicStrategyRoutes');
 const projectConceptNoteRoutes = require('./routes/projectConceptNoteRoutes');
 const projectNeedsAssessmentRoutes = require('./routes/projectNeedsAssessmentRoutes');
 const projectFinancialsRoutes = require('./routes/projectFinancialsRoutes');
@@ -35,7 +32,8 @@ const projectReadinessRoutes = require('./routes/projectReadinessRoutes');
 const projectHazardAssessmentRoutes = require('./routes/projectHazardAssessmentRoutes');
 const projectClimateRiskRoutes = require('./routes/projectClimateRiskRoutes');
 const projectEsohsgScreeningRoutes = require('./routes/projectEsohsgScreeningRoutes');
-const projectPdfRoutes = require('./routes/projectPdfRoutes'); // NEW: Import the new PDF route file
+const projectPdfRoutes = require('./routes/projectPdfRoutes');
+const { projectRouter: projectPhotoRouter, photoRouter } = require('./routes/projectPhotoRoutes');
 
 
 const app = express();
@@ -68,16 +66,16 @@ app.get('/', (req, res) => {
 
 // --- Public Routes (No Authentication Required) ---
 app.use('/api/auth', authRoutes);
-app.use('/api/strategy', publicStrategyRoutes); // Public strategic planning routes (e.g., template download)
+app.use('/api/strategy', publicStrategyRoutes);
 
 // --- Protected Routes (Authentication Required) ---
-app.use('/api', authenticate); // This middleware will now protect all routes below it
+app.use('/api', authenticate); 
 
 // Use the grouped routes (these will now be protected)
 app.use('/api/users', userRoutes);
-app.use('/api/projects', projectRoutes); // Core project routes
+app.use('/api/projects', projectRoutes);
 app.use('/api/organization', orgRoutes);
-app.use('/api/strategy', strategyRoutes); // Protected strategic planning routes
+app.use('/api/strategy', strategyRoutes);
 app.use('/api/participants', participantRoutes);
 app.use('/api/general', generalRoutes);
 app.use('/api/dashboard', dashboardRoutes);
@@ -102,7 +100,11 @@ app.use('/api/projects', projectReadinessRoutes);
 app.use('/api/projects', projectHazardAssessmentRoutes);
 app.use('/api/projects', projectClimateRiskRoutes);
 app.use('/api/projects', projectEsohsgScreeningRoutes);
-app.use('/api/projects', projectPdfRoutes); // NEW: Mount the PDF export route
+app.use('/api/projects', projectPdfRoutes);
+// NEW: Mount the project photo routes
+app.use('/api/project_photos', photoRouter);
+
+
 
 // Error handling middleware
 app.use((err, req, res, next) => {
