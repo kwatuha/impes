@@ -81,7 +81,7 @@ router.get('/:milestoneId', async (req, res) => {
 router.post('/', async (req, res) => {
     // TODO: Get userId from authenticated user (e.g., req.user.userId)
     const userId = 1; // Placeholder for now
-    const { projectId, milestoneName, milestoneDescription, dueDate, completed, completedDate, sequenceOrder } = req.body;
+    const { projectId, milestoneName, milestoneDescription, dueDate, completed, completedDate, sequenceOrder, progress, weight } = req.body; // NEW: Added progress and weight
     
     // Ensure `completed` is a boolean, and `completedDate` is set if `completed` is true
     const isCompleted = completed ? 1 : 0;
@@ -99,6 +99,8 @@ router.post('/', async (req, res) => {
         completed: isCompleted,
         completedDate: completionDate,
         sequenceOrder,
+        progress, // NEW: Include progress
+        weight, // NEW: Include weight
         userId,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -108,6 +110,17 @@ router.post('/', async (req, res) => {
     try {
         const [result] = await pool.query('INSERT INTO kemri_project_milestones SET ?', newMilestone);
         const [rows] = await pool.query('SELECT * FROM kemri_project_milestones WHERE milestoneId = ?', [result.insertId]);
+        
+        // NEW: Recalculate and update the project's overall progress
+        const [milestones] = await pool.query('SELECT progress, weight FROM kemri_project_milestones WHERE projectId = ? AND voided = 0', [projectId]);
+        
+        const totalWeightedProgress = milestones.reduce((sum, m) => sum + (m.progress * m.weight), 0);
+        const totalWeight = milestones.reduce((sum, m) => sum + m.weight, 0);
+        
+        const overallProgress = totalWeight > 0 ? (totalWeightedProgress / totalWeight) : 0;
+        
+        await pool.query('UPDATE kemri_projects SET overallProgress = ? WHERE id = ?', [overallProgress, projectId]);
+
         res.status(201).json(rows[0]);
     } catch (error) {
         console.error('Error creating milestone:', error);
@@ -122,7 +135,7 @@ router.post('/', async (req, res) => {
  */
 router.put('/:milestoneId', async (req, res) => {
     const { milestoneId } = req.params;
-    const { projectId, milestoneName, milestoneDescription, dueDate, completed, completedDate, sequenceOrder } = req.body;
+    const { projectId, milestoneName, milestoneDescription, dueDate, completed, completedDate, sequenceOrder, progress, weight } = req.body; // NEW: Added progress and weight
     
     const isCompleted = completed ? 1 : 0;
     const completionDate = completed ? (completedDate || new Date()) : null;
@@ -134,17 +147,42 @@ router.put('/:milestoneId', async (req, res) => {
         completed: isCompleted,
         completedDate: completionDate,
         sequenceOrder,
+        progress: progress !== undefined ? parseFloat(progress) : undefined,
+        weight: weight !== undefined ? parseFloat(weight) : undefined,
         updatedAt: new Date(),
     };
 
     try {
-        const [result] = await pool.query('UPDATE kemri_project_milestones SET ? WHERE milestoneId = ? AND voided = 0', [updatedFields, milestoneId]);
-        
-        if (result.affectedRows > 0) {
-            const [rows] = await pool.query('SELECT * FROM kemri_project_milestones WHERE milestoneId = ?', [milestoneId]);
-            res.status(200).json(rows[0]);
-        } else {
-            res.status(404).json({ message: 'Milestone not found or already deleted' });
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+            
+            const [result] = await connection.query('UPDATE kemri_project_milestones SET ? WHERE milestoneId = ? AND voided = 0', [updatedFields, milestoneId]);
+            
+            if (result.affectedRows > 0) {
+                // NEW: Calculate and update project's overall progress
+                const [milestones] = await connection.query('SELECT progress, weight FROM kemri_project_milestones WHERE projectId = ? AND voided = 0', [projectId]);
+                
+                const totalWeightedProgress = milestones.reduce((sum, m) => sum + (m.progress * m.weight), 0);
+                const totalWeight = milestones.reduce((sum, m) => sum + m.weight, 0);
+                
+                const overallProgress = totalWeight > 0 ? (totalWeightedProgress / totalWeight) : 0;
+                
+                await connection.query('UPDATE kemri_projects SET overallProgress = ? WHERE id = ?', [overallProgress, projectId]);
+
+                await connection.commit();
+
+                const [rows] = await connection.query('SELECT * FROM kemri_project_milestones WHERE milestoneId = ?', [milestoneId]);
+                res.status(200).json(rows[0]);
+            } else {
+                await connection.rollback();
+                res.status(404).json({ message: 'Milestone not found or already deleted' });
+            }
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
         }
     } catch (error) {
         console.error('Error updating milestone:', error);
@@ -163,14 +201,44 @@ router.delete('/:milestoneId', async (req, res) => {
     const userId = 1; // Placeholder for now
 
     try {
-        const [result] = await pool.query(
-            'UPDATE kemri_project_milestones SET voided = 1, voidedBy = ? WHERE milestoneId = ? AND voided = 0',
-            [userId, milestoneId]
-        );
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Milestone not found or already deleted' });
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            const [result] = await connection.query(
+                'UPDATE kemri_project_milestones SET voided = 1, voidedBy = ? WHERE milestoneId = ? AND voided = 0',
+                [userId, milestoneId]
+            );
+
+            if (result.affectedRows === 0) {
+                await connection.rollback();
+                return res.status(404).json({ message: 'Milestone not found or already deleted' });
+            }
+
+            // NEW: Recalculate and update the project's overall progress after deleting
+            const [deletedMilestoneRows] = await connection.query('SELECT projectId FROM kemri_project_milestones WHERE milestoneId = ?', [milestoneId]);
+            const projectId = deletedMilestoneRows[0]?.projectId;
+
+            if (projectId) {
+                const [milestones] = await connection.query('SELECT progress, weight FROM kemri_project_milestones WHERE projectId = ? AND voided = 0', [projectId]);
+                
+                const totalWeightedProgress = milestones.reduce((sum, m) => sum + (m.progress * m.weight), 0);
+                const totalWeight = milestones.reduce((sum, m) => sum + m.weight, 0);
+                
+                const overallProgress = totalWeight > 0 ? (totalWeightedProgress / totalWeight) : 0;
+                
+                await connection.query('UPDATE kemri_projects SET overallProgress = ? WHERE id = ?', [overallProgress, projectId]);
+            }
+
+            await connection.commit();
+            res.status(200).json({ message: 'Milestone soft-deleted successfully' });
+
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
         }
-        res.status(200).json({ message: 'Milestone soft-deleted successfully' });
     } catch (error) {
         console.error('Error deleting milestone:', error);
         res.status(500).json({ message: 'Error deleting milestone', error: error.message });
