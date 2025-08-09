@@ -1,6 +1,24 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer'); // Import multer for file uploads
+const path = require('path');
 const pool = require('../config/db'); // Import the database connection pool
+
+// --- Multer Configuration for file uploads ---
+// Define storage for uploaded files
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        // Set the destination folder for uploaded files
+        cb(null, 'uploads/');
+    },
+    filename: (req, file, cb) => {
+        // Generate a unique filename by adding a timestamp
+        cb(null, `${Date.now()}-${file.originalname}`);
+    }
+});
+
+// Create the multer middleware
+const upload = multer({ storage: storage });
 
 // --- Milestone Management API Calls (kemri_project_milestones) ---
 
@@ -156,6 +174,94 @@ router.delete('/:milestoneId', async (req, res) => {
     } catch (error) {
         console.error('Error deleting milestone:', error);
         res.status(500).json({ message: 'Error deleting milestone', error: error.message });
+    }
+});
+
+// ------------------------------------------------
+// --- Milestone Attachments API Calls ---
+// ------------------------------------------------
+
+/**
+ * @route GET /api/milestones/:milestoneId/attachments
+ * @description Get all active attachments for a specific milestone.
+ * @access Private
+ */
+router.get('/:milestoneId/attachments', async (req, res) => {
+    const { milestoneId } = req.params;
+    try {
+        const [rows] = await pool.query(
+            'SELECT * FROM kemri_milestone_attachments WHERE milestoneId = ? AND voided = 0',
+            [milestoneId]
+        );
+        res.status(200).json(rows);
+    } catch (error) {
+        console.error(`Error fetching attachments for milestone ${milestoneId}:`, error);
+        res.status(500).json({ message: `Error fetching attachments for milestone ${milestoneId}`, error: error.message });
+    }
+});
+
+/**
+ * @route POST /api/milestones/:milestoneId/attachments
+ * @description Upload a new attachment for a milestone.
+ * @access Private
+ */
+router.post('/:milestoneId/attachments', upload.single('file'), async (req, res) => {
+    const { milestoneId } = req.params;
+    const file = req.file;
+
+    // TODO: Get userId from authenticated user
+    const userId = 1;
+    const description = req.body.description || `Attachment for milestone ${milestoneId}`;
+
+    if (!file) {
+        return res.status(400).json({ message: 'No file uploaded.' });
+    }
+
+    try {
+        const newAttachment = {
+            milestoneId,
+            fileName: file.originalname,
+            filePath: file.path, // Save the path provided by multer
+            fileType: file.mimetype,
+            fileSize: file.size,
+            description,
+            userId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            voided: 0
+        };
+
+        const [result] = await pool.query('INSERT INTO kemri_milestone_attachments SET ?', newAttachment);
+        const [rows] = await pool.query('SELECT * FROM kemri_milestone_attachments WHERE attachmentId = ?', [result.insertId]);
+        res.status(201).json(rows[0]);
+    } catch (error) {
+        console.error('Error uploading attachment:', error);
+        res.status(500).json({ message: 'Error uploading attachment', error: error.message });
+    }
+});
+
+/**
+ * @route DELETE /api/milestones/attachments/:attachmentId
+ * @description Soft delete a milestone attachment.
+ * @access Private
+ */
+router.delete('/attachments/:attachmentId', async (req, res) => {
+    const { attachmentId } = req.params;
+    // TODO: Get userId from authenticated user
+    const userId = 1;
+
+    try {
+        const [result] = await pool.query(
+            'UPDATE kemri_milestone_attachments SET voided = 1, voidedBy = ? WHERE attachmentId = ? AND voided = 0',
+            [userId, attachmentId]
+        );
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Attachment not found or already deleted' });
+        }
+        res.status(200).json({ message: 'Attachment soft-deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting attachment:', error);
+        res.status(500).json({ message: 'Error deleting attachment', error: error.message });
     }
 });
 

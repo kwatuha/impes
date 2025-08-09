@@ -240,7 +240,6 @@ router.post('/', validateProject, async (req, res) => {
 
             // NEW: Automatically create milestones from the category template
             if (categoryId) {
-                // CORRECTED: Select `description` from the `category_milestones` table
                 const [milestoneTemplates] = await connection.query(
                     'SELECT milestoneName, description, sequenceOrder FROM category_milestones WHERE categoryId = ?',
                     [categoryId]
@@ -250,7 +249,7 @@ router.post('/', validateProject, async (req, res) => {
                     const milestoneValues = milestoneTemplates.map(m => [
                         newProjectId,
                         m.milestoneName,
-                        m.description, // Use the correct column name here
+                        m.description,
                         m.sequenceOrder,
                         'Not Started', // Initial status
                         userId, // Creator of the milestone
@@ -279,6 +278,7 @@ router.post('/', validateProject, async (req, res) => {
     }
 });
 
+// NEW: API Route to Apply Latest Milestone Templates
 /**
  * @route POST /api/projects/:projectId/apply-template
  * @description Applies the latest milestones from a category template to an existing project.
@@ -302,24 +302,25 @@ router.post('/apply-template/:projectId', async (req, res) => {
             await connection.beginTransaction();
 
             const [milestoneTemplates] = await connection.query(
-                // CORRECTED: Select `description` from the `category_milestones` table
-                'SELECT milestoneName, description, sequenceOrder FROM category_milestones WHERE categoryId = ?',
+                'SELECT milestoneName, milestoneDescription, sequenceOrder FROM category_milestones WHERE categoryId = ?',
                 [project.categoryId]
             );
 
+            // Fetch existing milestone names for the project to prevent duplicates
             const [existingMilestones] = await connection.query(
                 'SELECT milestoneName FROM kemri_project_milestones WHERE projectId = ?',
                 [projectId]
             );
             const existingMilestoneNames = new Set(existingMilestones.map(m => m.milestoneName));
 
+            // Filter out templates that already exist in the project
             const milestonesToAdd = milestoneTemplates.filter(m => !existingMilestoneNames.has(m.milestoneName));
 
             if (milestonesToAdd.length > 0) {
                 const milestoneValues = milestonesToAdd.map(m => [
                     projectId,
                     m.milestoneName,
-                    m.description, // Use the correct column name here
+                    m.milestoneDescription,
                     m.sequenceOrder,
                     'Not Started',
                     userId,
