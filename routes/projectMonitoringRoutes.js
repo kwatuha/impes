@@ -1,16 +1,58 @@
 const express = require('express');
-const router = express.Router();
+// We use { mergeParams: true } because we need projectId from the parent router
+const router = express.Router({ mergeParams: true }); 
 const pool = require('../config/db'); // Import the database connection pool
 
-// --- CRUD Operations for Project Monitoring (kemri_projectmonitoring) ---
+// --- Project Monitoring Records API Calls (kemri_project_monitoring_records) ---
 
 /**
- * @route GET /api/projects/project_monitoring
- * @description Get all project monitoring records.
+ * @route POST /api/projects/:projectId/monitoring
+ * @description Creates a new monitoring record for a project.
+ * @access Private (requires authentication and privilege)
+ */
+router.post('/', async (req, res) => {
+    const { projectId } = req.params;
+    const { comment, warningLevel, isRoutineObservation } = req.body;
+    
+    // TODO: Get userId from authenticated user (e.g., req.user.userId)
+    const userId = 1; // Placeholder for now
+
+    if (!projectId || !comment) {
+        return res.status(400).json({ message: 'Missing required fields: projectId, comment' });
+    }
+
+    const newRecord = {
+        projectId,
+        comment,
+        warningLevel: warningLevel || 'None',
+        isRoutineObservation: isRoutineObservation || 1,
+        userId,
+        createdAt: new Date(),
+        voided: 0,
+    };
+
+    try {
+        const [result] = await pool.query('INSERT INTO kemri_project_monitoring_records SET ?', newRecord);
+        const [rows] = await pool.query('SELECT * FROM kemri_project_monitoring_records WHERE recordId = ?', [result.insertId]);
+        res.status(201).json(rows[0]);
+    } catch (error) {
+        console.error('Error creating project monitoring record:', error);
+        res.status(500).json({ message: 'Error creating project monitoring record', error: error.message });
+    }
+});
+
+/**
+ * @route GET /api/projects/:projectId/monitoring
+ * @description Get all active monitoring records for a specific project.
+ * @access Private (protected by middleware)
  */
 router.get('/', async (req, res) => {
+    const { projectId } = req.params;
     try {
-        const [rows] = await pool.query('SELECT * FROM kemri_projectmonitoring');
+        const [rows] = await pool.query(
+            'SELECT * FROM kemri_project_monitoring_records WHERE projectId = ? AND voided = 0 ORDER BY observationDate DESC',
+            [projectId]
+        );
         res.status(200).json(rows);
     } catch (error) {
         console.error('Error fetching project monitoring records:', error);
@@ -19,61 +61,36 @@ router.get('/', async (req, res) => {
 });
 
 /**
- * @route GET /api/projects/project_monitoring/:id
- * @description Get a single project monitoring record by ID.
+ * @route PUT /api/projects/:projectId/monitoring/:recordId
+ * @description Update an existing monitoring record.
+ * @access Private (requires authentication and privilege)
  */
-router.get('/:id', async (req, res) => {
-    const { id } = req.params;
-    try {
-        const [rows] = await pool.query('SELECT * FROM kemri_projectmonitoring WHERE monitoringId = ?', [id]);
-        if (rows.length > 0) {
-            res.status(200).json(rows[0]);
-        } else {
-            res.status(404).json({ message: 'Project monitoring record not found' });
-        }
-    } catch (error) {
-        console.error('Error fetching project monitoring record:', error);
-        res.status(500).json({ message: 'Error fetching project monitoring record', error: error.message });
-    }
-});
+// CORRECTED: The path should be just '/:recordId' because the parent already provides '/:projectId/monitoring'
+router.put('/:recordId', async (req, res) => {
+    const { projectId, recordId } = req.params;
+    const { comment, warningLevel, isRoutineObservation } = req.body;
+    
+    // TODO: Get userId from authenticated user (e.g., req.user.userId)
+    const userId = 1;
 
-/**
- * @route POST /api/projects/project_monitoring
- * @description Create a new project monitoring record.
- */
-router.post('/', async (req, res) => {
-    const newMonitoring = {
-        monitoringId: req.body.monitoringId || `pm_mon${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        voided: false,
-        voidedBy: null,
-        ...req.body
+    const updatedFields = {
+        comment,
+        warningLevel,
+        isRoutineObservation,
+        updatedAt: new Date(),
     };
-    try {
-        const [result] = await pool.query('INSERT INTO kemri_projectmonitoring SET ?', newMonitoring);
-        if (result.insertId) {
-            newMonitoring.monitoringId = result.insertId;
-        }
-        res.status(201).json(newMonitoring);
-    } catch (error) {
-        console.error('Error creating project monitoring record:', error);
-        res.status(500).json({ message: 'Error creating project monitoring record', error: error.message });
-    }
-});
 
-/**
- * @route PUT /api/projects/project_monitoring/:id
- * @description Update an existing project monitoring record.
- */
-router.put('/:id', async (req, res) => {
-    const { id } = req.params;
-    const updatedFields = { ...req.body };
     try {
-        const [result] = await pool.query('UPDATE kemri_projectmonitoring SET ? WHERE monitoringId = ?', [updatedFields, id]);
+        const [result] = await pool.query(
+            'UPDATE kemri_project_monitoring_records SET ? WHERE recordId = ? AND projectId = ? AND voided = 0',
+            [updatedFields, recordId, projectId] // Added projectId for an extra layer of security
+        );
+        
         if (result.affectedRows > 0) {
-            const [rows] = await pool.query('SELECT * FROM kemri_projectmonitoring WHERE monitoringId = ?', [id]);
+            const [rows] = await pool.query('SELECT * FROM kemri_project_monitoring_records WHERE recordId = ?', [recordId]);
             res.status(200).json(rows[0]);
         } else {
-            res.status(404).json({ message: 'Project monitoring record not found' });
+            res.status(404).json({ message: 'Monitoring record not found or already deleted' });
         }
     } catch (error) {
         console.error('Error updating project monitoring record:', error);
@@ -82,18 +99,25 @@ router.put('/:id', async (req, res) => {
 });
 
 /**
- * @route DELETE /api/projects/project_monitoring/:id
- * @description Delete a project monitoring record.
+ * @route DELETE /api/projects/:projectId/monitoring/:recordId
+ * @description Soft delete a monitoring record.
+ * @access Private (requires authentication and privilege)
  */
-router.delete('/:id', async (req, res) => {
-    const { id } = req.params;
+// CORRECTED: The path should be just '/:recordId'
+router.delete('/:recordId', async (req, res) => {
+    const { projectId, recordId } = req.params;
+    // TODO: Get userId from authenticated user (e.g., req.user.userId)
+    const userId = 1;
+
     try {
-        const [result] = await pool.query('DELETE FROM kemri_projectmonitoring WHERE monitoringId = ?', [id]);
-        if (result.affectedRows > 0) {
-            res.status(204).send();
-        } else {
-            res.status(404).json({ message: 'Project monitoring record not found' });
+        const [result] = await pool.query(
+            'UPDATE kemri_project_monitoring_records SET voided = 1, voidedBy = ? WHERE recordId = ? AND projectId = ? AND voided = 0',
+            [userId, recordId, projectId] // Added projectId for security
+        );
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Monitoring record not found or already deleted' });
         }
+        res.status(200).json({ message: 'Monitoring record soft-deleted successfully' });
     } catch (error) {
         console.error('Error deleting project monitoring record:', error);
         res.status(500).json({ message: 'Error deleting project monitoring record', error: error.message });

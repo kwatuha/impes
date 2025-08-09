@@ -8,15 +8,16 @@ const projectAttachmentRoutes = require('./projectAttachmentRoutes');
 const projectCertificateRoutes = require('./projectCertificateRoutes');
 const projectFeedbackRoutes = require('./projectFeedbackRoutes');
 const projectMapRoutes = require('./projectMapRoutes');
-const projectMonitoringRoutes = require('./projectMonitoringRoutes');
+ 
 const projectObservationRoutes = require('./projectObservationRoutes');
 const projectPaymentRoutes = require('./projectPaymentRoutes');
 const projectSchedulingRoutes = require('./projectSchedulingRoutes');
 const projectCategoryRoutes = require('./metadata/projectCategoryRoutes');
 const projectWarningRoutes = require('./projectWarningRoutes');
 const projectProposalRatingRoutes = require('./projectProposalRatingRoutes');
-// CORRECTED: Import both routers from the projectPhotoRoutes file
 const { projectRouter: projectPhotoRouter, photoRouter } = require('./projectPhotoRoutes'); 
+// NEW: Import the project monitoring routes
+const projectMonitoringRoutes = require('./projectMonitoringRoutes');
 
 // Base SQL query for project details with all left joins
 const BASE_PROJECT_SELECT_JOINS = `
@@ -135,7 +136,6 @@ router.use('/project_attachments', projectAttachmentRoutes);
 router.use('/project_certificates', projectCertificateRoutes);
 router.use('/project_feedback', projectFeedbackRoutes);
 router.use('/project_maps', projectMapRoutes);
-router.use('/project_monitoring', projectMonitoringRoutes);
 router.use('/project_observations', projectObservationRoutes);
 router.use('/project_payments', projectPaymentRoutes);
 router.use('/projectscheduling', projectSchedulingRoutes);
@@ -147,8 +147,9 @@ router.use('/projproposalratings', projectProposalRatingRoutes);
 router.use('/:projectId/counties', projectCountiesRouter);
 router.use('/:projectId/subcounties', projectSubcountiesRouter);
 router.use('/:projectId/wards', projectWardsRouter);
-// CORRECTED: Mount the project-specific photo router here
 router.use('/:projectId/photos', projectPhotoRouter);
+// NEW: Mount the project monitoring router as a sub-route
+router.use('/:projectId/monitoring', projectMonitoringRoutes);
 
 /**
  * @route GET /api/projects/
@@ -326,8 +327,8 @@ router.post('/apply-template/:projectId', async (req, res) => {
                     m.milestoneName,
                     m.milestoneDescription,
                     m.sequenceOrder,
-                    'Not Started',
-                    userId,
+                    'Not Started', // Initial status
+                    userId, // Creator of the milestone
                     new Date().toISOString().slice(0, 19).replace('T', ' '),
                 ]);
 
