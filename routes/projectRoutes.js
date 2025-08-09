@@ -240,6 +240,7 @@ router.post('/', validateProject, async (req, res) => {
 
             // NEW: Automatically create milestones from the category template
             if (categoryId) {
+                // CORRECTED: Select `description` from the `category_milestones` table
                 const [milestoneTemplates] = await connection.query(
                     'SELECT milestoneName, description, sequenceOrder FROM category_milestones WHERE categoryId = ?',
                     [categoryId]
@@ -249,7 +250,7 @@ router.post('/', validateProject, async (req, res) => {
                     const milestoneValues = milestoneTemplates.map(m => [
                         newProjectId,
                         m.milestoneName,
-                        m.description,
+                        m.description, // Use the correct column name here
                         m.sequenceOrder,
                         'Not Started', // Initial status
                         userId, // Creator of the milestone
@@ -275,6 +276,73 @@ router.post('/', validateProject, async (req, res) => {
     } catch (error) {
         console.error('Error creating project:', error);
         res.status(500).json({ message: 'Error creating project', error: error.message });
+    }
+});
+
+/**
+ * @route POST /api/projects/:projectId/apply-template
+ * @description Applies the latest milestones from a category template to an existing project.
+ * @access Private (requires authentication and privilege)
+ */
+router.post('/apply-template/:projectId', async (req, res) => {
+    const { projectId } = req.params;
+    // TODO: Get userId from authenticated user (e.g., req.user.userId)
+    const userId = 1; // Placeholder for now
+
+    try {
+        const [projectRows] = await pool.query('SELECT categoryId FROM kemri_projects WHERE id = ? AND voided = 0', [projectId]);
+        const project = projectRows[0];
+
+        if (!project || !project.categoryId) {
+            return res.status(400).json({ message: 'Project not found or has no associated category' });
+        }
+
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            const [milestoneTemplates] = await connection.query(
+                // CORRECTED: Select `description` from the `category_milestones` table
+                'SELECT milestoneName, description, sequenceOrder FROM category_milestones WHERE categoryId = ?',
+                [project.categoryId]
+            );
+
+            const [existingMilestones] = await connection.query(
+                'SELECT milestoneName FROM kemri_project_milestones WHERE projectId = ?',
+                [projectId]
+            );
+            const existingMilestoneNames = new Set(existingMilestones.map(m => m.milestoneName));
+
+            const milestonesToAdd = milestoneTemplates.filter(m => !existingMilestoneNames.has(m.milestoneName));
+
+            if (milestonesToAdd.length > 0) {
+                const milestoneValues = milestonesToAdd.map(m => [
+                    projectId,
+                    m.milestoneName,
+                    m.description, // Use the correct column name here
+                    m.sequenceOrder,
+                    'Not Started',
+                    userId,
+                    new Date().toISOString().slice(0, 19).replace('T', ' '),
+                ]);
+
+                await connection.query(
+                    'INSERT INTO kemri_project_milestones (projectId, milestoneName, milestoneDescription, sequenceOrder, status, userId, createdAt) VALUES ?',
+                    [milestoneValues]
+                );
+            }
+
+            await connection.commit();
+            res.status(200).json({ message: `${milestonesToAdd.length} new milestones applied from template` });
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    } catch (error) {
+        console.error('Error applying milestone template:', error);
+        res.status(500).json({ message: 'Error applying milestone template', error: error.message });
     }
 });
 
@@ -346,9 +414,6 @@ router.delete('/:id', async (req, res) => {
 });
 
 // --- Junction Table Routes ---
-// The junction table routes below have been kept as is, but you may want to
-// add a `voided = 0` condition to their GET routes for consistency.
-
 router.get('/:projectId/counties', async (req, res) => {
     const { projectId } = req.params;
     if (isNaN(parseInt(projectId))) { return res.status(400).json({ message: 'Invalid project ID' }); }
@@ -442,7 +507,10 @@ router.post('/:projectId/subcounties', async (req, res) => {
             );
             await connection.commit();
             res.status(201).json({ projectId: parseInt(projectId), subcountyId: parseInt(subcountyId), assignedAt: new Date() });
-        } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally { connection.release(); }
     } catch (error) {
         console.error('Error adding project subcounty association:', error);
         if (error.code === 'ER_DUP_ENTRY') { return res.status(409).json({ message: 'This subcounty is already associated with this project' }); }
@@ -501,7 +569,10 @@ router.post('/:projectId/wards', async (req, res) => {
             );
             await connection.commit();
             res.status(201).json({ projectId: parseInt(projectId), wardId: parseInt(wardId), assignedAt: new Date() });
-        } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally { connection.release(); }
     } catch (error) {
         console.error('Error adding project ward association:', error);
         if (error.code === 'ER_DUP_ENTRY') { return res.status(409).json({ message: 'This ward is already associated with this project' }); }
