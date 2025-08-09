@@ -1,22 +1,18 @@
-// src/routes/milestoneRoutes.js
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db'); // Import the database connection pool
 
-// --- REMOVE camelToSnakeCase and snakeToCamelCase helpers from this file ---
-// Since your DB uses camelCase for columns, no conversion is needed for data objects.
-// If you use these helpers elsewhere (e.g. for API response normalization for other tables),
-// they should remain in a utility file, but not be applied here.
+// --- Milestone Management API Calls (kemri_project_milestones) ---
 
 /**
  * @route GET /api/milestones
- * @description Get all milestones from the kemri_milestones table.
+ * @description Get all active milestones from the kemri_project_milestones table.
+ * @access Private (protected by middleware)
  */
 router.get('/', async (req, res) => {
     try {
-        // No conversion needed, as DB returns camelCase, which frontend expects
-        const [rows] = await pool.query('SELECT * FROM kemri_milestones');
-        res.status(200).json(rows); // Return directly
+        const [rows] = await pool.query('SELECT * FROM kemri_project_milestones WHERE voided = 0');
+        res.status(200).json(rows);
     } catch (error) {
         console.error('Error fetching all milestones:', error);
         res.status(500).json({ message: 'Error fetching all milestones', error: error.message });
@@ -25,14 +21,14 @@ router.get('/', async (req, res) => {
 
 /**
  * @route GET /api/milestones/project/:projectId
- * @description Get all milestones for a specific project from the kemri_milestones table.
+ * @description Get all active milestones for a specific project.
+ * @access Private (protected by middleware)
  */
 router.get('/project/:projectId', async (req, res) => {
-    const { projectId } = req.params; // projectId is camelCase from URL
+    const { projectId } = req.params;
     try {
-        // Use projectId (camelCase) for the database column, as per your schema
-        const [rows] = await pool.query('SELECT * FROM kemri_milestones WHERE projectId = ?', [projectId]);
-        res.status(200).json(rows); // Return directly
+        const [rows] = await pool.query('SELECT * FROM kemri_project_milestones WHERE projectId = ? AND voided = 0 ORDER BY sequenceOrder', [projectId]);
+        res.status(200).json(rows);
     } catch (error) {
         console.error(`Error fetching milestones for project ${projectId}:`, error);
         res.status(500).json({ message: `Error fetching milestones for project ${projectId}`, error: error.message });
@@ -41,15 +37,15 @@ router.get('/project/:projectId', async (req, res) => {
 
 /**
  * @route GET /api/milestones/:milestoneId
- * @description Get a single milestone by milestoneId from the kemri_milestones table.
+ * @description Get a single active milestone by milestoneId.
+ * @access Private (protected by middleware)
  */
 router.get('/:milestoneId', async (req, res) => {
-    const { milestoneId } = req.params; // milestoneId is camelCase from URL
+    const { milestoneId } = req.params;
     try {
-        // Use milestoneId (camelCase) for the database column, as per your schema
-        const [rows] = await pool.query('SELECT * FROM kemri_milestones WHERE milestoneId = ?', [milestoneId]);
+        const [rows] = await pool.query('SELECT * FROM kemri_project_milestones WHERE milestoneId = ? AND voided = 0', [milestoneId]);
         if (rows.length > 0) {
-            res.status(200).json(rows[0]); // Return directly
+            res.status(200).json(rows[0]);
         } else {
             res.status(404).json({ message: 'Milestone not found' });
         }
@@ -61,38 +57,40 @@ router.get('/:milestoneId', async (req, res) => {
 
 /**
  * @route POST /api/milestones
- * @description Create a new milestone in the kemri_milestones table.
+ * @description Create a new milestone.
+ * @access Private (requires authentication and privilege)
  */
 router.post('/', async (req, res) => {
-    // req.body already contains camelCase from frontend (milestoneName, dueDate, completedDate, projectId)
-    const clientData = req.body;
+    // TODO: Get userId from authenticated user (e.g., req.user.userId)
+    const userId = 1; // Placeholder for now
+    const { projectId, milestoneName, milestoneDescription, dueDate, completed, completedDate, sequenceOrder } = req.body;
+    
+    // Ensure `completed` is a boolean, and `completedDate` is set if `completed` is true
+    const isCompleted = completed ? 1 : 0;
+    const completionDate = completed ? (completedDate || new Date()) : null;
 
-    // IMPORTANT: Assuming 'milestoneId' is AUTO_INCREMENT in your DB and should NOT be provided here
-    // If you need to generate a client-side UUID, you'd add:
-    // milestoneId: clientData.milestoneId || `m${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-    // But since your DB is AUTO_INCREMENT, we let the DB handle it.
+    if (!projectId || !milestoneName || !dueDate) {
+        return res.status(400).json({ message: 'Missing required fields: projectId, milestoneName, dueDate' });
+    }
     
     const newMilestone = {
-        createdAt: new Date(), // Use camelCase as per DB schema
-        updatedAt: new Date(), // Use camelCase as per DB schema
-        ...clientData // This brings in milestoneName, milestoneDescription, dueDate, completed, completedDate, projectId
+        projectId,
+        milestoneName,
+        milestoneDescription,
+        dueDate,
+        completed: isCompleted,
+        completedDate: completionDate,
+        sequenceOrder,
+        userId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        voided: 0,
     };
 
-    // Remove any client-provided milestoneId if the DB auto-increments it,
-    // to avoid "Cannot add value to AUTO_INCREMENT column" errors.
-    delete newMilestone.milestoneId; 
-
     try {
-        console.log('Inserting Milestone:', newMilestone); // Log data going to DB
-        // Query will map camelCase keys in newMilestone directly to camelCase DB columns
-        const [result] = await pool.query('INSERT INTO kemri_milestones SET ?', newMilestone);
-        
-        // If the DB auto-generates milestoneId, capture it for the response
-        if (result.insertId) {
-            newMilestone.milestoneId = result.insertId;
-        }
-
-        res.status(201).json(newMilestone); // Return the created milestone as camelCase
+        const [result] = await pool.query('INSERT INTO kemri_project_milestones SET ?', newMilestone);
+        const [rows] = await pool.query('SELECT * FROM kemri_project_milestones WHERE milestoneId = ?', [result.insertId]);
+        res.status(201).json(rows[0]);
     } catch (error) {
         console.error('Error creating milestone:', error);
         res.status(500).json({ message: 'Error creating milestone', error: error.message });
@@ -101,29 +99,34 @@ router.post('/', async (req, res) => {
 
 /**
  * @route PUT /api/milestones/:milestoneId
- * @description Update an existing milestone in the kemri_milestones table.
+ * @description Update an existing milestone.
+ * @access Private (requires authentication and privilege)
  */
 router.put('/:milestoneId', async (req, res) => {
-    const { milestoneId } = req.params; // milestoneId is camelCase from URL
-    const updatedFields = { 
-        ...req.body, 
-        updatedAt: new Date() // Use camelCase as per DB schema
+    const { milestoneId } = req.params;
+    const { projectId, milestoneName, milestoneDescription, dueDate, completed, completedDate, sequenceOrder } = req.body;
+    
+    const isCompleted = completed ? 1 : 0;
+    const completionDate = completed ? (completedDate || new Date()) : null;
+    
+    const updatedFields = {
+        milestoneName,
+        milestoneDescription,
+        dueDate,
+        completed: isCompleted,
+        completedDate: completionDate,
+        sequenceOrder,
+        updatedAt: new Date(),
     };
 
-    // Remove milestoneId from the body to prevent attempting to update primary key
-    delete updatedFields.milestoneId; 
-
     try {
-        console.log(`Updating Milestone ${milestoneId}:`, updatedFields); // Log data going to DB
-        // Query will map camelCase keys in updatedFields directly to camelCase DB columns
-        const [result] = await pool.query('UPDATE kemri_milestones SET ? WHERE milestoneId = ?', [updatedFields, milestoneId]);
+        const [result] = await pool.query('UPDATE kemri_project_milestones SET ? WHERE milestoneId = ? AND voided = 0', [updatedFields, milestoneId]);
         
         if (result.affectedRows > 0) {
-            // Fetch and return the updated row as camelCase
-            const [rows] = await pool.query('SELECT * FROM kemri_milestones WHERE milestoneId = ?', [milestoneId]);
+            const [rows] = await pool.query('SELECT * FROM kemri_project_milestones WHERE milestoneId = ?', [milestoneId]);
             res.status(200).json(rows[0]);
         } else {
-            res.status(404).json({ message: 'Milestone not found' });
+            res.status(404).json({ message: 'Milestone not found or already deleted' });
         }
     } catch (error) {
         console.error('Error updating milestone:', error);
@@ -133,21 +136,26 @@ router.put('/:milestoneId', async (req, res) => {
 
 /**
  * @route DELETE /api/milestones/:milestoneId
- * @description Delete a milestone from the kemri_milestones table.
+ * @description Soft delete a milestone.
+ * @access Private (requires authentication and privilege)
  */
 router.delete('/:milestoneId', async (req, res) => {
-    const { milestoneId } = req.params; // milestoneId is camelCase from URL
+    const { milestoneId } = req.params;
+    // TODO: Get userId from authenticated user (e.g., req.user.userId)
+    const userId = 1; // Placeholder for now
+
     try {
-        // Use milestoneId (camelCase) for the database column
-        const [result] = await pool.query('DELETE FROM kemri_milestones WHERE milestoneId = ?', [milestoneId]);
-        if (result.affectedRows > 0) {
-            res.status(204).send();
-        } else {
-            res.status(404).json({ message: 'Milestone not found' });
+        const [result] = await pool.query(
+            'UPDATE kemri_project_milestones SET voided = 1, voidedBy = ? WHERE milestoneId = ? AND voided = 0',
+            [userId, milestoneId]
+        );
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Milestone not found or already deleted' });
         }
+        res.status(200).json({ message: 'Milestone soft-deleted successfully' });
     } catch (error) {
-        console.error(`Error deleting milestone with ID ${milestoneId}:`, error);
-        res.status(500).json({ message: `Error deleting milestone with ID ${milestoneId}`, error: error.message });
+        console.error('Error deleting milestone:', error);
+        res.status(500).json({ message: 'Error deleting milestone', error: error.message });
     }
 });
 
