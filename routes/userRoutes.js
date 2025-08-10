@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
-const bcrypt = require('bcryptjs'); // Import bcryptjs for password hashing
+const bcrypt = require('bcryptjs');
 
 // --- CRUD Operations for kemri_users ---
 
@@ -11,7 +11,6 @@ const bcrypt = require('bcryptjs'); // Import bcryptjs for password hashing
  */
 router.get('/users', async (req, res) => {
     try {
-        // Exclude passwordHash from the results for security
         const [rows] = await pool.query('SELECT userId, username, email, firstName, lastName, role, createdAt, updatedAt, isActive FROM kemri_users');
         res.status(200).json(rows);
     } catch (error) {
@@ -27,7 +26,6 @@ router.get('/users', async (req, res) => {
 router.get('/users/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        // Exclude passwordHash from the results for security
         const [rows] = await pool.query('SELECT userId, username, email, firstName, lastName, role, createdAt, updatedAt, isActive FROM kemri_users WHERE userId = ?', [id]);
         if (rows.length > 0) {
             res.status(200).json(rows[0]);
@@ -45,16 +43,15 @@ router.get('/users/:id', async (req, res) => {
  * @description Create a new user in the kemri_users table.
  */
 router.post('/users', async (req, res) => {
-    // Destructure fields from req.body, using snake_case to match frontend
-    const { username, email, password, first_name, last_name, role } = req.body;
+    // CORRECTED: Destructure using camelCase to match frontend
+    const { username, email, password, firstName, lastName, role } = req.body;
 
-    // Basic validation using the snake_case names
-    if (!username || !email || !password || !first_name || !last_name) {
+    // CORRECTED: Validate using camelCase names
+    if (!username || !email || !password || !firstName || !lastName) {
         return res.status(400).json({ error: 'Please enter all required fields: username, email, password, first name, last name.' });
     }
 
     try {
-        // Check if user already exists
         const [existingUsers] = await pool.execute(
             'SELECT userId FROM kemri_users WHERE username = ? OR email = ?',
             [username, email]
@@ -64,26 +61,24 @@ router.post('/users', async (req, res) => {
             return res.status(400).json({ error: 'User with that username or email already exists.' });
         }
 
-        // Hash password
         const salt = await bcrypt.genSalt(10);
         const passwordHash = await bcrypt.hash(password, salt);
 
         const newUser = {
             username,
             email,
-            passwordHash, // Store the hashed password
-            firstName: first_name, // Map frontend's snake_case to DB's camelCase
-            lastName: last_name,   // Map frontend's snake_case to DB's camelCase
-            role: role || 'user', // Default role if not provided
+            passwordHash,
+            firstName, // CORRECTED: Use firstName directly
+            lastName,  // CORRECTED: Use lastName directly
+            role: role || 'user',
             createdAt: new Date(),
             updatedAt: new Date(),
-            isActive: true, // Default to active
+            isActive: true,
         };
 
         const [result] = await pool.query('INSERT INTO kemri_users SET ?', newUser);
         
         const insertedUserId = result.insertId;
-        // Fetch the newly created user to return a complete object (excluding passwordHash)
         const [rows] = await pool.query('SELECT userId, username, email, firstName, lastName, role, createdAt, updatedAt, isActive FROM kemri_users WHERE userId = ?', [insertedUserId]);
         res.status(201).json(rows[0]);
     } catch (error) {
@@ -101,27 +96,20 @@ router.post('/users', async (req, res) => {
  */
 router.put('/users/:id', async (req, res) => {
     const { id } = req.params;
-    // Destructure password, and also first_name/last_name if they are potentially updated
-    const { password, first_name, last_name, ...otherFieldsToUpdate } = req.body;
+    const { password, ...otherFieldsToUpdate } = req.body;
 
+    // CORRECTED: We now handle fields directly from the request body
     const fieldsToUpdate = { ...otherFieldsToUpdate, updatedAt: new Date() };
 
-    // Map frontend's snake_case to DB's camelCase if present in the update
-    if (first_name !== undefined) fieldsToUpdate.firstName = first_name;
-    if (last_name !== undefined) fieldsToUpdate.lastName = last_name;
-
-    // If password is provided, hash it and update passwordHash
     if (password && password.trim() !== '') {
         const salt = await bcrypt.genSalt(10);
         fieldsToUpdate.passwordHash = await bcrypt.hash(password, salt);
     }
-    // Ensure userId is not updated and password is not directly stored
-    delete fieldsToUpdate.userId; 
+    delete fieldsToUpdate.userId;
 
     try {
         const [result] = await pool.query('UPDATE kemri_users SET ? WHERE userId = ?', [fieldsToUpdate, id]);
         if (result.affectedRows > 0) {
-            // Fetch the updated user to return a complete object (excluding passwordHash)
             const [rows] = await pool.query('SELECT userId, username, email, firstName, lastName, role, createdAt, updatedAt, isActive FROM kemri_users WHERE userId = ?', [id]);
             res.status(200).json(rows[0]);
         } else {
@@ -197,7 +185,7 @@ router.post('/roles', async (req, res) => {
         updatedAt: new Date(),
         ...req.body
     };
-    delete newRole.roleId; // Ensure roleId is not sent if it's auto-incremented by the DB
+    delete newRole.roleId;
 
     try {
         const [result] = await pool.query('INSERT INTO kemri_roles SET ?', newRole);
@@ -217,7 +205,7 @@ router.post('/roles', async (req, res) => {
 router.put('/roles/:id', async (req, res) => {
     const { id } = req.params;
     const fieldsToUpdate = { ...req.body, updatedAt: new Date() };
-    delete fieldsToUpdate.roleId; // Prevent updating the primary key itself
+    delete fieldsToUpdate.roleId;
 
     try {
         const [result] = await pool.query('UPDATE kemri_roles SET ? WHERE roleId = ?', [fieldsToUpdate, id]);
@@ -297,7 +285,7 @@ router.post('/privileges', async (req, res) => {
         updatedAt: new Date(),
         ...req.body
     };
-    delete newPrivilege.privilegeId; // Ensure privilegeId is not sent if it's auto-incremented by the DB
+    delete newPrivilege.privilegeId;
 
     try {
         const [result] = await pool.query('INSERT INTO kemri_privileges SET ?', newPrivilege);
@@ -317,7 +305,7 @@ router.post('/privileges', async (req, res) => {
 router.put('/privileges/:id', async (req, res) => {
     const { id } = req.params;
     const fieldsToUpdate = { ...req.body, updatedAt: new Date() };
-    delete fieldsToUpdate.privilegeId; // Prevent updating the primary key itself
+    delete fieldsToUpdate.privilegeId;
 
     try {
         const [result] = await pool.query('UPDATE kemri_privileges SET ? WHERE privilegeId = ?', [fieldsToUpdate, id]);
@@ -498,7 +486,7 @@ router.post('/staff', async (req, res) => {
         updatedAt: new Date(),
         ...req.body
     };
-    delete newStaff.staffId; // Ensure staffId is not sent if it's auto-incremented by the DB
+    delete newStaff.staffId;
 
     try {
         const [result] = await pool.query('INSERT INTO kemri_staff SET ?', newStaff);
@@ -515,10 +503,10 @@ router.post('/staff', async (req, res) => {
  * @route PUT /api/users/staff/:id
  * @description Update an existing staff member in the kemri_staff table.
  */
-router.put('/staff/:id', async (req, res) => { // Corrected route path
+router.put('/staff/:id', async (req, res) => {
     const { id } = req.params;
     const fieldsToUpdate = { ...req.body, updatedAt: new Date() };
-    delete fieldsToUpdate.staffId; // Prevent updating the primary key itself
+    delete fieldsToUpdate.staffId;
 
     try {
         const [result] = await pool.query('UPDATE kemri_staff SET ? WHERE staffId = ?', [fieldsToUpdate, id]);
@@ -596,7 +584,7 @@ router.post('/project_roles', async (req, res) => {
     const newProjectRole = {
         ...req.body
     };
-    delete newProjectRole.roleId; // Ensure roleId is not sent if it's auto-incremented by the DB
+    delete newProjectRole.roleId;
 
     try {
         const [result] = await pool.query('INSERT INTO kemri_project_roles SET ?', newProjectRole);
@@ -617,7 +605,7 @@ router.post('/project_roles', async (req, res) => {
 router.put('/project_roles/:id', async (req, res) => {
     const { id } = req.params;
     const fieldsToUpdate = { ...req.body };
-    delete fieldsToUpdate.roleId; // Prevent updating the primary key itself
+    delete fieldsToUpdate.roleId;
 
     try {
         const [result] = await pool.query('UPDATE kemri_project_roles SET ? WHERE roleId = ?', [fieldsToUpdate, id]);
@@ -696,7 +684,7 @@ router.post('/project_staff_assignments', async (req, res) => {
         createdAt: new Date(),
         ...req.body
     };
-    delete newAssignment.assignmentId; // Ensure assignmentId is not sent if it's auto-incremented by the DB
+    delete newAssignment.assignmentId;
 
     try {
         const [result] = await pool.query('INSERT INTO kemri_project_staff_assignments SET ?', newAssignment);
@@ -716,7 +704,7 @@ router.post('/project_staff_assignments', async (req, res) => {
 router.put('/project_staff_assignments/:id', async (req, res) => {
     const { id } = req.params;
     const fieldsToUpdate = { ...req.body };
-    delete fieldsToUpdate.assignmentId; // Prevent updating the primary key itself
+    delete fieldsToUpdate.assignmentId;
 
     try {
         const [result] = await pool.query('UPDATE kemri_project_staff_assignments SET ? WHERE assignmentId = ?', [fieldsToUpdate, id]);
@@ -796,7 +784,7 @@ router.post('/website_public_profiles', async (req, res) => {
         voidedBy: req.body.voidedBy !== undefined ? req.body.voidedBy : null,
         ...req.body
     };
-    delete newProfile.ProfileID; // Ensure ProfileID is not sent if it's auto-incremented by the DB
+    delete newProfile.ProfileID;
 
     try {
         const [result] = await pool.query('INSERT INTO kemri_websitepublicprofiles SET ?', newProfile);
@@ -816,7 +804,7 @@ router.post('/website_public_profiles', async (req, res) => {
 router.put('/website_public_profiles/:id', async (req, res) => {
     const { id } = req.params;
     const fieldsToUpdate = { ...req.body };
-    delete fieldsToUpdate.ProfileID; // Prevent updating the primary key itself
+    delete fieldsToUpdate.ProfileID;
 
     try {
         const [result] = await pool.query('UPDATE kemri_websitepublicprofiles SET ? WHERE ProfileID = ?', [fieldsToUpdate, id]);

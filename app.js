@@ -33,7 +33,12 @@ const projectHazardAssessmentRoutes = require('./routes/projectHazardAssessmentR
 const projectClimateRiskRoutes = require('./routes/projectClimateRiskRoutes');
 const projectEsohsgScreeningRoutes = require('./routes/projectEsohsgScreeningRoutes');
 const projectPdfRoutes = require('./routes/projectPdfRoutes');
+// Import project photo routers
 const { projectRouter: projectPhotoRouter, photoRouter } = require('./routes/projectPhotoRoutes');
+// Import the contractor-related routers
+const contractorRoutes = require('./routes/contractorRoutes');
+const paymentRequestRoutes = require('./routes/paymentRequestRoutes');
+const contractorPhotoRoutes = require('./routes/contractorPhotoRoutes');
 
 
 const app = express();
@@ -101,10 +106,12 @@ app.use('/api/projects', projectHazardAssessmentRoutes);
 app.use('/api/projects', projectClimateRiskRoutes);
 app.use('/api/projects', projectEsohsgScreeningRoutes);
 app.use('/api/projects', projectPdfRoutes);
-// NEW: Mount the project photo routes
 app.use('/api/project_photos', photoRouter);
 
-
+// NEW: Mount the contractor-related routes as top-level resources
+app.use('/api/contractors', contractorRoutes);
+app.use('/api/payment-requests', paymentRequestRoutes);
+app.use('/api/contractor-photos', contractorPhotoRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -117,3 +124,4 @@ app.listen(port, () => {
     console.log(`KEMRI CRUD API listening at http://localhost:${port}`);
     console.log(`CORS enabled for specific origins during development.`);
 });
+

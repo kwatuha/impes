@@ -8,7 +8,7 @@ const projectAttachmentRoutes = require('./projectAttachmentRoutes');
 const projectCertificateRoutes = require('./projectCertificateRoutes');
 const projectFeedbackRoutes = require('./projectFeedbackRoutes');
 const projectMapRoutes = require('./projectMapRoutes');
- 
+const projectMonitoringRoutes = require('./projectMonitoringRoutes');
 const projectObservationRoutes = require('./projectObservationRoutes');
 const projectPaymentRoutes = require('./projectPaymentRoutes');
 const projectSchedulingRoutes = require('./projectSchedulingRoutes');
@@ -16,8 +16,8 @@ const projectCategoryRoutes = require('./metadata/projectCategoryRoutes');
 const projectWarningRoutes = require('./projectWarningRoutes');
 const projectProposalRatingRoutes = require('./projectProposalRatingRoutes');
 const { projectRouter: projectPhotoRouter, photoRouter } = require('./projectPhotoRoutes'); 
-// NEW: Import the project monitoring routes
-const projectMonitoringRoutes = require('./projectMonitoringRoutes');
+const projectAssignmentRoutes = require('./projectAssignmentRoutes');
+
 
 // Base SQL query for project details with all left joins
 const BASE_PROJECT_SELECT_JOINS = `
@@ -148,8 +148,112 @@ router.use('/:projectId/counties', projectCountiesRouter);
 router.use('/:projectId/subcounties', projectSubcountiesRouter);
 router.use('/:projectId/wards', projectWardsRouter);
 router.use('/:projectId/photos', projectPhotoRouter);
-// NEW: Mount the project monitoring router as a sub-route
 router.use('/:projectId/monitoring', projectMonitoringRoutes);
+
+
+// NEW: Contractor Assignment Routes
+/**
+ * @route GET /api/projects/:projectId/contractors
+ * @description Get all contractors assigned to a specific project.
+ * @access Private
+ */
+router.get('/:projectId/contractors', async (req, res) => {
+    const { projectId } = req.params;
+    try {
+        const [rows] = await pool.query(
+            `SELECT c.* FROM kemri_contractors c
+             JOIN kemri_project_contractor_assignments pca ON c.contractorId = pca.contractorId
+             WHERE pca.projectId = ?`,
+            [projectId]
+        );
+        res.status(200).json(rows);
+    } catch (error) {
+        console.error('Error fetching contractors for project:', error);
+        res.status(500).json({ message: 'Error fetching contractors for project', error: error.message });
+    }
+});
+
+/**
+ * @route POST /api/projects/:projectId/assign-contractor
+ * @description Assign a contractor to a project.
+ * @access Private
+ */
+router.post('/:projectId/assign-contractor', async (req, res) => {
+    const { projectId } = req.params;
+    const { contractorId } = req.body;
+    
+    if (!contractorId) {
+        return res.status(400).json({ message: 'Contractor ID is required.' });
+    }
+
+    try {
+        const [result] = await pool.query(
+            'INSERT INTO kemri_project_contractor_assignments (projectId, contractorId) VALUES (?, ?)',
+            [projectId, contractorId]
+        );
+        res.status(201).json({ message: 'Contractor assigned to project successfully.', assignmentId: result.insertId });
+    } catch (error) {
+        console.error('Error assigning contractor to project:', error);
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(409).json({ message: 'This contractor is already assigned to this project.' });
+        }
+        res.status(500).json({ message: 'Error assigning contractor to project', error: error.message });
+    }
+});
+
+/**
+ * @route DELETE /api/projects/:projectId/remove-contractor/:contractorId
+ * @description Remove a contractor's assignment from a project.
+ * @access Private
+ */
+router.delete('/:projectId/remove-contractor/:contractorId', async (req, res) => {
+    const { projectId, contractorId } = req.params;
+    try {
+        const [result] = await pool.query(
+            'DELETE FROM kemri_project_contractor_assignments WHERE projectId = ? AND contractorId = ?',
+            [projectId, contractorId]
+        );
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Assignment not found.' });
+        }
+        res.status(204).send();
+    } catch (error) {
+        console.error('Error removing contractor assignment:', error);
+        res.status(500).json({ message: 'Error removing contractor assignment', error: error.message });
+    }
+});
+
+
+// NEW: Route for fetching payment requests for a project
+router.get('/:projectId/payment-requests', async (req, res) => {
+    const { projectId } = req.params;
+    try {
+        const [rows] = await pool.query(
+            'SELECT * FROM kemri_project_payment_requests WHERE projectId = ? ORDER BY submittedAt DESC',
+            [projectId]
+        );
+        res.status(200).json(rows);
+    } catch (error) {
+        console.error('Error fetching payment requests for project:', error);
+        res.status(500).json({ message: 'Error fetching payment requests for project', error: error.message });
+    }
+});
+
+// NEW: Route for fetching contractor photos for a project
+router.get('/:projectId/contractor-photos', async (req, res) => {
+    const { projectId } = req.params;
+    try {
+        const [rows] = await pool.query(
+            'SELECT * FROM kemri_contractor_photos WHERE projectId = ? ORDER BY submittedAt DESC',
+            [projectId]
+        );
+        res.status(200).json(rows);
+    } catch (error) {
+        console.error('Error fetching contractor photos for project:', error);
+        res.status(500).json({ message: 'Error fetching contractor photos for project', error: error.message });
+    }
+});
+
 
 /**
  * @route GET /api/projects/
@@ -251,7 +355,7 @@ router.post('/', validateProject, async (req, res) => {
                 );
 
                 if (milestoneTemplates.length > 0) {
-                    const milestoneValues = milestoneTemplates.map(m => [
+                    const milestoneValues = milestonesTemplates.map(m => [
                         newProjectId,
                         m.milestoneName,
                         m.description,
@@ -600,7 +704,8 @@ router.delete('/:wardId', async (req, res) => {
             await connection.commit();
             res.status(204).send();
         } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
-    } catch (error) {
+    } catch (error)
+    {
         console.error('Error deleting project ward association:', error);
         res.status(500).json({ message: 'Error deleting project ward association', error: error.message });
     }
