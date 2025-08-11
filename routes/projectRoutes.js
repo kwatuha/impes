@@ -18,9 +18,7 @@ const projectProposalRatingRoutes = require('./projectProposalRatingRoutes');
 const { projectRouter: projectPhotoRouter, photoRouter } = require('./projectPhotoRoutes'); 
 const projectAssignmentRoutes = require('./projectAssignmentRoutes');
 
-
-
-// Base SQL query for project details with all left joins
+// Base SQL query for project details with all left joins (now without location joins)
 const BASE_PROJECT_SELECT_JOINS = `
     SELECT
         p.id,
@@ -58,10 +56,33 @@ const BASE_PROJECT_SELECT_JOINS = `
         projCat.categoryName,
         p.userId AS creatorUserId,
         u.firstName AS creatorFirstName,
-        u.lastName AS creatorLastName,
-        GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR ', ') AS countyNames,
-        GROUP_CONCAT(DISTINCT sc.name ORDER BY sc.name SEPARATOR ', ') AS subcountyNames,
-        GROUP_CONCAT(DISTINCT w.name ORDER BY w.name SEPARATOR ', ') AS wardNames
+        u.lastName AS creatorLastName
+    FROM
+        kemri_projects p
+    LEFT JOIN
+        kemri_staff s ON p.principalInvestigatorStaffId = s.staffId
+    LEFT JOIN
+        kemri_departments cd ON p.departmentId = cd.departmentId
+    LEFT JOIN
+        kemri_sections ds ON p.sectionId = ds.sectionId
+    LEFT JOIN
+        kemri_financialyears fy ON p.finYearId = fy.finYearId
+    LEFT JOIN
+        kemri_programs pr ON p.programId = pr.programId
+    LEFT JOIN
+        kemri_subprograms spr ON p.subProgramId = spr.subProgramId
+    LEFT JOIN
+        project_categories projCat ON p.categoryId = projCat.categoryId
+    LEFT JOIN
+        kemri_users u ON p.userId = u.userId
+`;
+
+// Query for fetching a single project by ID (now with location joins)
+const GET_SINGLE_PROJECT_QUERY = `
+    ${BASE_PROJECT_SELECT_JOINS},
+    GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR ', ') AS countyNames,
+    GROUP_CONCAT(DISTINCT sc.name ORDER BY sc.name SEPARATOR ', ') AS subcountyNames,
+    GROUP_CONCAT(DISTINCT w.name ORDER BY w.name SEPARATOR ', ') AS wardNames
     FROM
         kemri_projects p
     LEFT JOIN
@@ -92,19 +113,6 @@ const BASE_PROJECT_SELECT_JOINS = `
         project_categories projCat ON p.categoryId = projCat.categoryId
     LEFT JOIN
         kemri_users u ON p.userId = u.userId
-`;
-
-// Full query for fetching all projects with filtering
-const GET_PROJECTS_FULL_QUERY = `
-    ${BASE_PROJECT_SELECT_JOINS}
-    WHERE p.voided = 0
-    GROUP BY p.id
-    ORDER BY p.id;
-`;
-
-// Query for fetching a single project by ID
-const GET_SINGLE_PROJECT_QUERY = `
-    ${BASE_PROJECT_SELECT_JOINS}
     WHERE p.id = ? AND p.voided = 0
     GROUP BY p.id;
 `;
@@ -378,10 +386,95 @@ router.get('/', async (req, res) => {
             finYearId, programId, subProgramId, countyId, subcountyId, wardId, categoryId
         } = req.query;
 
-        let query = BASE_PROJECT_SELECT_JOINS;
+        // Base SQL query without location joins
+        const BASE_PROJECT_SELECT = `
+            SELECT
+                p.id,
+                p.projectName,
+                p.projectDescription,
+                p.directorate,
+                p.startDate,
+                p.endDate,
+                p.costOfProject,
+                p.paidOut,
+                p.objective,
+                p.expectedOutput,
+                p.principalInvestigator,
+                p.expectedOutcome,
+                p.status,
+                p.statusReason,
+                p.createdAt,
+                p.updatedAt,
+                p.voided,
+                p.principalInvestigatorStaffId,
+                s.firstName AS piFirstName,
+                s.lastName AS piLastName,
+                s.email AS piEmail,
+                p.departmentId,
+                cd.name AS departmentName,
+                p.sectionId,
+                ds.name AS sectionName,
+                p.finYearId,
+                fy.finYearName AS financialYearName,
+                p.programId,
+                pr.programme AS programName,
+                p.subProgramId,
+                spr.subProgramme AS subProgramName,
+                p.categoryId,
+                projCat.categoryName,
+                p.userId AS creatorUserId,
+                u.firstName AS creatorFirstName,
+                u.lastName AS creatorLastName
+        `;
+        
+        // This part dynamically builds the query.
+        let fromAndJoinClauses = `
+            FROM
+                kemri_projects p
+            LEFT JOIN
+                kemri_staff s ON p.principalInvestigatorStaffId = s.staffId
+            LEFT JOIN
+                kemri_departments cd ON p.departmentId = cd.departmentId
+            LEFT JOIN
+                kemri_sections ds ON p.sectionId = ds.sectionId
+            LEFT JOIN
+                kemri_financialyears fy ON p.finYearId = fy.finYearId
+            LEFT JOIN
+                kemri_programs pr ON p.programId = pr.programId
+            LEFT JOIN
+                kemri_subprograms spr ON p.subProgramId = spr.subProgramId
+            LEFT JOIN
+                project_categories projCat ON p.categoryId = projCat.categoryId
+            LEFT JOIN
+                kemri_users u ON p.userId = u.userId
+        `;
+
         let queryParams = [];
         let whereConditions = ['p.voided = 0'];
+        let locationJoinClauses = '';
+        let locationSelectClauses = '';
 
+        // Dynamically add joins and conditions for location filters
+        if (countyId) {
+            fromAndJoinClauses += ' LEFT JOIN kemri_project_counties pc ON p.id = pc.projectId LEFT JOIN kemri_counties c ON pc.countyId = c.countyId';
+            whereConditions.push('pc.countyId = ?');
+            queryParams.push(parseInt(countyId));
+            locationSelectClauses += 'GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR ", ") AS countyNames, ';
+        }
+        if (subcountyId) {
+            fromAndJoinClauses += ' LEFT JOIN kemri_project_subcounties psc ON p.id = psc.projectId LEFT JOIN kemri_subcounties sc ON psc.subcountyId = sc.subcountyId';
+            whereConditions.push('psc.subcountyId = ?');
+            queryParams.push(parseInt(subcountyId));
+            locationSelectClauses += 'GROUP_CONCAT(DISTINCT sc.name ORDER BY sc.name SEPARATOR ", ") AS subcountyNames, ';
+        }
+        if (wardId) {
+            fromAndJoinClauses += ' LEFT JOIN kemri_project_wards pw ON p.id = pw.projectId LEFT JOIN kemri_wards w ON pw.wardId = w.wardId';
+            whereConditions.push('pw.wardId = ?');
+            queryParams.push(parseInt(wardId));
+            locationSelectClauses += 'GROUP_CONCAT(DISTINCT w.name ORDER BY w.name SEPARATOR ", ") AS wardNames, ';
+        }
+
+        // Add other non-location filters
         if (projectName) { whereConditions.push('p.projectName LIKE ?'); queryParams.push(`%${projectName}%`); }
         if (startDate) { whereConditions.push('p.startDate >= ?'); queryParams.push(startDate); }
         if (endDate) { whereConditions.push('p.endDate <= ?'); queryParams.push(endDate); }
@@ -391,15 +484,14 @@ router.get('/', async (req, res) => {
         if (finYearId) { whereConditions.push('p.finYearId = ?'); queryParams.push(parseInt(finYearId)); }
         if (programId) { whereConditions.push('p.programId = ?'); queryParams.push(parseInt(programId)); }
         if (subProgramId) { whereConditions.push('p.subProgramId = ?'); queryParams.push(parseInt(subProgramId)); }
-        if (countyId) { whereConditions.push('pc.countyId = ?'); queryParams.push(parseInt(countyId)); }
-        if (subcountyId) { whereConditions.push('psc.subcountyId = ?'); queryParams.push(parseInt(subcountyId)); }
-        if (wardId) { whereConditions.push('pw.wardId = ?'); queryParams.push(parseInt(wardId)); }
         if (categoryId) { whereConditions.push('p.categoryId = ?'); queryParams.push(parseInt(categoryId)); }
+
+        // Build the final query
+        let query = `${BASE_PROJECT_SELECT}${locationSelectClauses ? `, ${locationSelectClauses.slice(0, -2)}` : ''} ${fromAndJoinClauses}`;
 
         if (whereConditions.length > 0) {
             query += ` WHERE ${whereConditions.join(' AND ')}`;
         }
-
         query += ` GROUP BY p.id ORDER BY p.id`;
 
         const [rows] = await pool.query(query, queryParams);
@@ -409,6 +501,7 @@ router.get('/', async (req, res) => {
         res.status(500).json({ message: 'Error fetching projects', error: error.message });
     }
 });
+
 
 /**
  * @route GET /api/projects/:id
@@ -466,7 +559,7 @@ router.post('/', validateProject, async (req, res) => {
                 );
 
                 if (milestoneTemplates.length > 0) {
-                    const milestoneValues = milestonesTemplates.map(m => [
+                    const milestoneValues = milestoneTemplates.map(m => [
                         newProjectId,
                         m.milestoneName,
                         m.description,
