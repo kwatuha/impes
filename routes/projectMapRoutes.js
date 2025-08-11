@@ -3,12 +3,13 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db'); // Import the database connection pool
 
+
 /**
  * @file API service for Project Map related calls.
  * @description Handles fetching project map data, including GeoJSON and associated project details.
  */
 
-// --- CRUD Operations for Project Maps (kemri_projectmaps) ---
+// --- CRUD Operations for Project Maps (kemri_project_maps) ---
 
 /**
  * @route GET /api/projects/project_maps
@@ -33,7 +34,7 @@ router.get('/', async (req, res) => {
                 p.costOfProject,
                 p.status
             FROM 
-                kemri_projectmaps pm
+                kemri_project_maps pm
             JOIN
                 kemri_projects p ON pm.projectId = p.id
             WHERE 1=1
@@ -139,7 +140,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        const [rows] = await pool.query('SELECT * FROM kemri_projectmaps WHERE mapId = ?', [id]);
+        const [rows] = await pool.query('SELECT * FROM kemri_project_maps WHERE mapId = ?', [id]);
         if (rows.length > 0) {
             res.status(200).json(rows[0]);
         } else {
@@ -167,10 +168,10 @@ router.post('/', async (req, res) => {
     delete newMap.mapId;
     
     try {
-        const [result] = await pool.query('INSERT INTO kemri_projectmaps SET ?', newMap);
+        const [result] = await pool.query('INSERT INTO kemri_project_maps SET ?', newMap);
 
         // Fetch the newly created record using the auto-generated insertId
-        const [rows] = await pool.query('SELECT * FROM kemri_projectmaps WHERE mapId = ?', [result.insertId]);
+        const [rows] = await pool.query('SELECT * FROM kemri_project_maps WHERE mapId = ?', [result.insertId]);
         if (rows.length > 0) {
             res.status(201).json(rows[0]);
         } else {
@@ -232,7 +233,7 @@ router.post('/import', async (req, res) => {
             return res.status(400).json({ message: 'A resourceId or resourceName must be provided.' });
         }
 
-        const insertQuery = 'INSERT INTO kemri_projectmaps (projectId, map) VALUES (?, ?)';
+        const insertQuery = 'INSERT INTO kemri_project_maps (projectId, map) VALUES (?, ?)';
         const insertParams = [finalResourceId, geojson];
 
         const [result] = await pool.query(insertQuery, insertParams);
@@ -256,9 +257,9 @@ router.put('/:id', async (req, res) => {
     const { id } = req.params;
     const updatedFields = { ...req.body };
     try {
-        const [result] = await pool.query('UPDATE kemri_projectmaps SET ? WHERE mapId = ?', [updatedFields, id]);
+        const [result] = await pool.query('UPDATE kemri_project_maps SET ? WHERE mapId = ?', [updatedFields, id]);
         if (result.affectedRows > 0) {
-            const [rows] = await pool.query('SELECT * FROM kemri_projectmaps WHERE mapId = ?', [id]);
+            const [rows] = await pool.query('SELECT * FROM kemri_project_maps WHERE mapId = ?', [id]);
             res.status(200).json(rows[0]);
         } else {
             res.status(404).json({ message: 'Project map not found' });
@@ -276,7 +277,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await pool.query('DELETE FROM kemri_projectmaps WHERE mapId = ?', [id]);
+        const [result] = await pool.query('DELETE FROM kemri_project_maps WHERE mapId = ?', [id]);
         if (result.affectedRows > 0) {
             res.status(204).send();
         } else {

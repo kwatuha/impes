@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db'); // Import the database connection pool
 
-// Import individual route files
+// --- Consolidated Imports for All Sub-Routers ---
 const appointmentScheduleRoutes = require('./appointmentScheduleRoutes');
 const projectAttachmentRoutes = require('./projectAttachmentRoutes');
 const projectCertificateRoutes = require('./projectCertificateRoutes');
@@ -17,6 +17,7 @@ const projectWarningRoutes = require('./projectWarningRoutes');
 const projectProposalRatingRoutes = require('./projectProposalRatingRoutes');
 const { projectRouter: projectPhotoRouter, photoRouter } = require('./projectPhotoRoutes'); 
 const projectAssignmentRoutes = require('./projectAssignmentRoutes');
+
 
 
 // Base SQL query for project details with all left joins
@@ -123,6 +124,17 @@ const checkProjectExists = async (projectId) => {
     return rows.length > 0;
 };
 
+// Helper function to extract all coordinates from a GeoJSON geometry object
+const extractCoordinates = (geometry) => {
+    if (!geometry) return [];
+    if (geometry.type === 'Point') return [geometry.coordinates];
+    if (geometry.type === 'LineString' || geometry.type === 'MultiPoint') return geometry.coordinates;
+    if (geometry.type === 'Polygon') return geometry.coordinates[0];
+    if (geometry.type === 'MultiPolygon') return geometry.coordinates.flat(Infinity);
+    return [];
+};
+
+
 // --- CRUD Operations for Projects (kemri_projects) ---
 
 // Define junction table routers
@@ -140,15 +152,14 @@ router.use('/project_observations', projectObservationRoutes);
 router.use('/project_payments', projectPaymentRoutes);
 router.use('/projectscheduling', projectSchedulingRoutes);
 router.use('/projectcategories', projectCategoryRoutes);
-router.use('/projectwarnings', projectWarningRoutes);
-router.use('/projproposalratings', projectProposalRatingRoutes);
+router.use('/:projectId/monitoring', projectMonitoringRoutes);
+
 
 // Mount junction table routers
 router.use('/:projectId/counties', projectCountiesRouter);
 router.use('/:projectId/subcounties', projectSubcountiesRouter);
 router.use('/:projectId/wards', projectWardsRouter);
 router.use('/:projectId/photos', projectPhotoRouter);
-router.use('/:projectId/monitoring', projectMonitoringRoutes);
 
 
 // NEW: Contractor Assignment Routes
@@ -251,6 +262,106 @@ router.get('/:projectId/contractor-photos', async (req, res) => {
     } catch (error) {
         console.error('Error fetching contractor photos for project:', error);
         res.status(500).json({ message: 'Error fetching contractor photos for project', error: error.message });
+    }
+});
+
+
+/**
+ * @route GET /api/projects/maps-data
+ * @description Get all project and GeoJSON data for the map, with optional filters.
+ * @access Private
+ */
+router.get('/maps-data', async (req, res) => {
+    const { countyId, subcountyId, wardId, projectType } = req.query;
+    
+    let query = `
+        SELECT
+            p.id,
+            p.projectName,
+            p.projectDescription,
+            p.status,
+            pm.mapId,
+            pm.map AS geoJson
+        FROM
+            kemri_projects p
+        JOIN
+            kemri_project_maps pm ON p.id = pm.projectId
+        WHERE 1=1
+    `;
+
+    const queryParams = [];
+    
+    // Add filtering based on the junction tables
+    if (countyId) {
+        query += ` AND p.id IN (
+            SELECT projectId FROM kemri_project_counties WHERE countyId = ?
+        )`;
+        queryParams.push(countyId);
+    }
+    if (subcountyId) {
+        query += ` AND p.id IN (
+            SELECT projectId FROM kemri_project_subcounties WHERE subcountyId = ?
+        )`;
+        queryParams.push(subcountyId);
+    }
+    if (wardId) {
+        query += ` AND p.id IN (
+            SELECT projectId FROM kemri_project_wards WHERE wardId = ?
+        )`;
+        queryParams.push(wardId);
+    }
+    if (projectType && projectType !== 'all') {
+        query += ` AND p.projectType = ?`;
+        queryParams.push(projectType);
+    }
+    
+    query += ` ORDER BY p.id;`;
+
+    try {
+        const [rows] = await pool.query(query, queryParams);
+
+        let minLat = Infinity, minLng = Infinity, maxLat = -Infinity, maxLng = -Infinity;
+
+        // Process GeoJSON to get a single bounding box and parse the data for the frontend
+        const projectsWithGeoJson = rows.map(row => {
+            try {
+                const geoJson = JSON.parse(row.geoJson);
+                
+                const coordinates = extractCoordinates(geoJson.geometry);
+                coordinates.forEach(coord => {
+                    const [lng, lat] = coord;
+                    if (isFinite(lat) && isFinite(lng)) {
+                        minLat = Math.min(minLat, lat);
+                        minLng = Math.min(minLng, lng);
+                        maxLat = Math.max(maxLat, lat);
+                        maxLng = Math.max(maxLng, lng);
+                    }
+                });
+
+                return {
+                    id: row.id,
+                    projectName: row.projectName,
+                    projectDescription: row.projectDescription,
+                    status: row.status,
+                    geoJson: geoJson,
+                };
+            } catch (e) {
+                console.error("Error parsing GeoJSON for project:", row.id, e);
+                return null;
+            }
+        }).filter(item => item !== null);
+
+        const boundingBox = isFinite(minLat) ? { minLat, minLng, maxLat, maxLng } : null;
+
+        const responseData = {
+            projects: projectsWithGeoJson,
+            boundingBox: boundingBox
+        };
+
+        res.status(200).json(responseData);
+    } catch (error) {
+        console.error('Error fetching filtered map data:', error);
+        res.status(500).json({ message: 'Error fetching filtered map data', error: error.message });
     }
 });
 
@@ -642,7 +753,8 @@ router.delete('/:subcountyId', async (req, res) => {
             await connection.commit();
             res.status(204).send();
         } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
-    } catch (error) {
+    } catch (error)
+    {
         console.error('Error deleting project subcounty association:', error);
         res.status(500).json({ message: 'Error deleting project subcounty association', error: error.message });
     }
