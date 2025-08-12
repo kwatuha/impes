@@ -1,4 +1,3 @@
-// src/routes/strategic.routes.js
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db'); // Import the database connection pool
@@ -8,7 +7,7 @@ const fs = require('fs'); // Import fs module for file system operations (like d
 const xlsx = require('xlsx'); // Import xlsx for Excel parsing
 const PDFDocument = require('pdfkit'); // NEW: Import pdfkit for PDF generation
 
-// --- NEW IMPORTS: Annual Work Plans and Activities ---
+// --- Import new modular routes ---
 const annualWorkPlanRoutes = require('./annualWorkPlanRoutes');
 const activityRoutes = require('./activityRoutes');
 
@@ -965,13 +964,39 @@ router.get('/programs/:programId/export-pdf', async (req, res) => {
     try {
         connection = await pool.getConnection();
 
+        // Fetch the program details
         const [programRows] = await connection.query('SELECT programId, programme, needsPriorities, strategies, objectives, outcomes, remarks FROM kemri_programs WHERE programId = ?', [programId]);
         if (programRows.length === 0) {
             return res.status(404).json({ message: 'Program not found.' });
         }
         const program = programRows[0];
 
-        const [subprograms] = await connection.query('SELECT subProgramme, keyOutcome, kpi, baseline, yr1Targets, yr2Targets, yr3Targets, yr4Targets, yr5Targets, yr1Budget, yr2Budget, yr3Budget, yr4Budget, yr5Budget, totalBudget, remarks FROM kemri_subprograms WHERE programId = ?', [programId]);
+        // Fetch subprograms, workplans, and activities
+        const [subprograms] = await connection.query('SELECT subProgramme, subProgramId, keyOutcome, kpi, baseline, yr1Targets, yr2Targets, yr3Targets, yr4Targets, yr5Targets, yr1Budget, yr2Budget, yr3Budget, yr4Budget, yr5Budget, totalBudget, remarks FROM kemri_subprograms WHERE programId = ?', [programId]);
+        
+        const workplanPromises = subprograms.map(s => 
+            connection.query('SELECT workplanId, workplanName, subProgramId, financialYear, workplanDescription, totalBudget, approvalStatus FROM kemri_annual_workplans WHERE subProgramId = ?', [s.subProgramId])
+        );
+        const workplanResults = await Promise.all(workplanPromises);
+        
+        subprograms.forEach((s, index) => {
+            s.workplans = workplanResults[index][0];
+        });
+
+        const activityPromises = subprograms.flatMap(s => 
+            s.workplans.map(wp => 
+                connection.query('SELECT activityId, activityName, workplanId, projectId, responsibleOfficer, startDate, endDate, budgetAllocated, actualCost, percentageComplete, activityStatus FROM kemri_activities WHERE workplanId = ?', [wp.workplanId])
+            )
+        );
+        const activityResults = await Promise.all(activityPromises);
+        
+        let activityIndex = 0;
+        subprograms.forEach(s => {
+            s.workplans.forEach(wp => {
+                wp.activities = activityResults[activityIndex][0];
+                activityIndex++;
+            });
+        });
 
         const doc = new PDFDocument({ margin: 50 });
         const filename = `Program_Report_${program.programme.replace(/\s/g, '_')}.pdf`;
@@ -1040,75 +1065,46 @@ router.get('/programs/:programId/export-pdf', async (req, res) => {
                 doc.text(`   Baseline: ${s.baseline || 'N/A'}`);
                 doc.text(`   Total Budget: ${formatCurrencyForPdf(s.totalBudget)}`);
                 
-                doc.moveDown(0.5);
-                
-                doc.fontSize(12).text('   Yearly Budgets:');
-                doc.moveDown(0.2);
-                
-                const budgetTableY = doc.y;
-                const tableStartX = doc.page.margins.left + 30;
-                const colWidth = 80;
-                
-                doc.fontSize(10);
-                const headers = ['Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5'];
-                headers.forEach((header, i) => {
-                    doc.text(header, tableStartX + (i * colWidth), budgetTableY, { 
-                        width: colWidth - 5,
-                        align: 'center'
-                    });
-                });
-                
-                const budgetData = [
-                    formatCurrencyForPdf(s.yr1Budget),
-                    formatCurrencyForPdf(s.yr2Budget),
-                    formatCurrencyForPdf(s.yr3Budget),
-                    formatCurrencyForPdf(s.yr4Budget),
-                    formatCurrencyForPdf(s.yr5Budget)
-                ];
-                
-                const dataY = budgetTableY + 20;
-                budgetData.forEach((data, i) => {
-                    doc.text(data, tableStartX + (i * colWidth), dataY, {
-                        width: colWidth - 5,
-                        align: 'center'
-                    });
-                });
-                
-                doc.y = dataY + 25;
-                
-                doc.fontSize(12).text('   Yearly Targets:');
-                doc.moveDown(0.2);
-                
-                const targetsTableY = doc.y;
-                
-                doc.fontSize(10);
-                headers.forEach((header, i) => {
-                    doc.text(header, tableStartX + (i * colWidth), targetsTableY, { 
-                        width: colWidth - 5,
-                        align: 'center'
-                    });
-                });
-                
-                const targetsData = [
-                    s.yr1Targets || 'N/A',
-                    s.yr2Targets || 'N/A',
-                    s.yr3Targets || 'N/A',
-                    s.yr4Targets || 'N/A',
-                    s.yr5Targets || 'N/A'
-                ];
-                
-                const targetsDataY = targetsTableY + 20;
-                targetsData.forEach((data, i) => {
-                    doc.text(String(data), tableStartX + (i * colWidth), targetsDataY, {
-                        width: colWidth - 5,
-                        align: 'center'
-                    });
-                });
-                
-                doc.y = targetsDataY + 25;
-                
                 addMultiLineText(s.keyOutcome, 'Key Outcome', 1);
                 addMultiLineText(s.remarks, 'Remarks', 1);
+
+                doc.moveDown(1);
+                doc.fontSize(14).text('   - Annual Work Plans:', { underline: true });
+                doc.moveDown(0.2);
+                if (s.workplans && s.workplans.length > 0) {
+                    s.workplans.forEach(wp => {
+                        if (doc.y > doc.page.height - 150) {
+                            doc.addPage();
+                        }
+                        doc.moveDown(0.5);
+                        doc.fontSize(12).text(`     - Work Plan: ${wp.workplanName} (${wp.financialYear})`);
+                        doc.fontSize(10).text(`       Status: ${wp.approvalStatus}, Total Budget: ${formatCurrencyForPdf(wp.totalBudget)}`);
+                        if (wp.workplanDescription) {
+                            doc.text(`       Description: ${wp.workplanDescription}`);
+                        }
+
+                        doc.moveDown(0.5);
+                        doc.fontSize(12).text('       - Activities:', { underline: true });
+                        doc.moveDown(0.2);
+                        if (wp.activities && wp.activities.length > 0) {
+                            const activitiesTable = {
+                                headers: ['Name', 'Budget', 'Progress', 'Status'],
+                                rows: wp.activities.map(a => [
+                                    a.activityName || 'N/A',
+                                    formatCurrencyForPdf(a.budgetAllocated),
+                                    `${a.percentageComplete || 'N/A'}%`,
+                                    a.activityStatus || 'N/A'
+                                ])
+                            };
+                            const tableStartX = doc.page.margins.left + 50;
+                            drawTable(doc, activitiesTable, tableStartX, doc.y, { columnsSize: [150, 80, 80, 80] });
+                        } else {
+                            doc.fontSize(10).text('         No activities found.');
+                        }
+                    });
+                } else {
+                    doc.fontSize(12).text('   No work plans associated with this subprogram.');
+                }
                 
                 if (index < subprograms.length - 1) {
                     doc.moveDown(0.5);
