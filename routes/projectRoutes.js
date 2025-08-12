@@ -72,7 +72,7 @@ const BASE_PROJECT_SELECT_JOINS = `
     LEFT JOIN
         kemri_subprograms spr ON p.subProgramId = spr.subProgramId
     LEFT JOIN
-        project_categories projCat ON p.categoryId = projCat.categoryId
+        kemri_project_milestone_implementations projCat ON p.categoryId = projCat.categoryId
     LEFT JOIN
         kemri_users u ON p.userId = u.userId
 `;
@@ -110,7 +110,7 @@ const GET_SINGLE_PROJECT_QUERY = `
     LEFT JOIN
         kemri_wards w ON pw.wardId = w.wardId
     LEFT JOIN
-        project_categories projCat ON p.categoryId = projCat.categoryId
+        kemri_project_milestone_implementations projCat ON p.categoryId = projCat.categoryId
     LEFT JOIN
         kemri_users u ON p.userId = u.userId
     WHERE p.id = ? AND p.voided = 0
@@ -444,7 +444,7 @@ router.get('/', async (req, res) => {
             LEFT JOIN
                 kemri_subprograms spr ON p.subProgramId = spr.subProgramId
             LEFT JOIN
-                project_categories projCat ON p.categoryId = projCat.categoryId
+                kemri_project_milestone_implementations projCat ON p.categoryId = projCat.categoryId
             LEFT JOIN
                 kemri_users u ON p.userId = u.userId
         `;

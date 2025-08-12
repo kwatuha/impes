@@ -13,7 +13,7 @@ const pool = require('../../config/db'); // Correct path for the new folder stru
  */
 router.get('/', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM project_categories WHERE voided = 0');
+        const [rows] = await pool.query('SELECT * FROM kemri_project_milestone_implementations WHERE voided = 0');
         res.status(200).json(rows);
     } catch (error) {
         console.error('Error fetching project categories:', error);
@@ -29,7 +29,7 @@ router.get('/', async (req, res) => {
 router.get('/:categoryId', async (req, res) => {
     const { categoryId } = req.params;
     try {
-        const [rows] = await pool.query('SELECT * FROM project_categories WHERE categoryId = ? AND voided = 0', [categoryId]);
+        const [rows] = await pool.query('SELECT * FROM kemri_project_milestone_implementations WHERE categoryId = ? AND voided = 0', [categoryId]);
         if (rows.length > 0) {
             res.status(200).json(rows[0]);
         } else {
@@ -57,7 +57,7 @@ router.post('/', async (req, res) => {
 
     try {
         const [result] = await pool.query(
-            'INSERT INTO project_categories (categoryName, description, userId) VALUES (?, ?, ?)',
+            'INSERT INTO kemri_project_milestone_implementations (categoryName, description, userId) VALUES (?, ?, ?)',
             [categoryName, description, userId]
         );
         res.status(201).json({ message: 'Project category created successfully', categoryId: result.insertId });
@@ -78,7 +78,7 @@ router.put('/:categoryId', async (req, res) => {
 
     try {
         const [result] = await pool.query(
-            'UPDATE project_categories SET categoryName = ?, description = ?, updatedAt = CURRENT_TIMESTAMP WHERE categoryId = ? AND voided = 0',
+            'UPDATE kemri_project_milestone_implementations SET categoryName = ?, description = ?, updatedAt = CURRENT_TIMESTAMP WHERE categoryId = ? AND voided = 0',
             [categoryName, description, categoryId]
         );
         if (result.affectedRows === 0) {
@@ -103,7 +103,7 @@ router.delete('/:categoryId', async (req, res) => {
 
     try {
         const [result] = await pool.query(
-            'UPDATE project_categories SET voided = 1, voidedBy = ? WHERE categoryId = ? AND voided = 0',
+            'UPDATE kemri_project_milestone_implementations SET voided = 1, voidedBy = ? WHERE categoryId = ? AND voided = 0',
             [userId, categoryId]
         );
         if (result.affectedRows === 0) {
