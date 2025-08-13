@@ -18,7 +18,8 @@ const projectProposalRatingRoutes = require('./projectProposalRatingRoutes');
 const { projectRouter: projectPhotoRouter, photoRouter } = require('./projectPhotoRoutes'); 
 const projectAssignmentRoutes = require('./projectAssignmentRoutes');
 
-// Base SQL query for project details with all left joins (now without location joins)
+
+// Base SQL query for project details with all left joins
 const BASE_PROJECT_SELECT_JOINS = `
     SELECT
         p.id,
@@ -56,33 +57,10 @@ const BASE_PROJECT_SELECT_JOINS = `
         projCat.categoryName,
         p.userId AS creatorUserId,
         u.firstName AS creatorFirstName,
-        u.lastName AS creatorLastName
-    FROM
-        kemri_projects p
-    LEFT JOIN
-        kemri_staff s ON p.principalInvestigatorStaffId = s.staffId
-    LEFT JOIN
-        kemri_departments cd ON p.departmentId = cd.departmentId
-    LEFT JOIN
-        kemri_sections ds ON p.sectionId = ds.sectionId
-    LEFT JOIN
-        kemri_financialyears fy ON p.finYearId = fy.finYearId
-    LEFT JOIN
-        kemri_programs pr ON p.programId = pr.programId
-    LEFT JOIN
-        kemri_subprograms spr ON p.subProgramId = spr.subProgramId
-    LEFT JOIN
-        kemri_project_milestone_implementations projCat ON p.categoryId = projCat.categoryId
-    LEFT JOIN
-        kemri_users u ON p.userId = u.userId
-`;
-
-// Query for fetching a single project by ID (now with location joins)
-const GET_SINGLE_PROJECT_QUERY = `
-    ${BASE_PROJECT_SELECT_JOINS},
-    GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR ', ') AS countyNames,
-    GROUP_CONCAT(DISTINCT sc.name ORDER BY sc.name SEPARATOR ', ') AS subcountyNames,
-    GROUP_CONCAT(DISTINCT w.name ORDER BY w.name SEPARATOR ', ') AS wardNames
+        u.lastName AS creatorLastName,
+        GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR ', ') AS countyNames,
+        GROUP_CONCAT(DISTINCT sc.name ORDER BY sc.name SEPARATOR ', ') AS subcountyNames,
+        GROUP_CONCAT(DISTINCT w.name ORDER BY w.name SEPARATOR ', ') AS wardNames
     FROM
         kemri_projects p
     LEFT JOIN
@@ -113,6 +91,11 @@ const GET_SINGLE_PROJECT_QUERY = `
         kemri_project_milestone_implementations projCat ON p.categoryId = projCat.categoryId
     LEFT JOIN
         kemri_users u ON p.userId = u.userId
+`;
+
+// Corrected full query for fetching a single project by ID
+const GET_SINGLE_PROJECT_QUERY = `
+    ${BASE_PROJECT_SELECT_JOINS}
     WHERE p.id = ? AND p.voided = 0
     GROUP BY p.id;
 `;
@@ -570,7 +553,7 @@ router.post('/', validateProject, async (req, res) => {
                     ]);
 
                     await connection.query(
-                        'INSERT INTO kemri_project_milestones (projectId, milestoneName, milestoneDescription, sequenceOrder, status, userId, createdAt) VALUES ?',
+                        'INSERT INTO kemri_project_milestones (projectId, milestoneName, description, sequenceOrder, status, userId, createdAt) VALUES ?',
                         [milestoneValues]
                     );
                 }
@@ -615,7 +598,7 @@ router.post('/apply-template/:projectId', async (req, res) => {
             await connection.beginTransaction();
 
             const [milestoneTemplates] = await connection.query(
-                'SELECT milestoneName, milestoneDescription, sequenceOrder FROM category_milestones WHERE categoryId = ?',
+                'SELECT milestoneName, description, sequenceOrder FROM category_milestones WHERE categoryId = ?',
                 [project.categoryId]
             );
 
@@ -633,7 +616,7 @@ router.post('/apply-template/:projectId', async (req, res) => {
                 const milestoneValues = milestonesToAdd.map(m => [
                     projectId,
                     m.milestoneName,
-                    m.milestoneDescription,
+                    m.description,
                     m.sequenceOrder,
                     'Not Started', // Initial status
                     userId, // Creator of the milestone
@@ -641,7 +624,7 @@ router.post('/apply-template/:projectId', async (req, res) => {
                 ]);
 
                 await connection.query(
-                    'INSERT INTO kemri_project_milestones (projectId, milestoneName, milestoneDescription, sequenceOrder, status, userId, createdAt) VALUES ?',
+                    'INSERT INTO kemri_project_milestones (projectId, milestoneName, description, sequenceOrder, status, userId, createdAt) VALUES ?',
                     [milestoneValues]
                 );
             }

@@ -10,6 +10,7 @@ const PDFDocument = require('pdfkit'); // NEW: Import pdfkit for PDF generation
 // --- Import new modular routes ---
 const annualWorkPlanRoutes = require('./annualWorkPlanRoutes');
 const activityRoutes = require('./activityRoutes');
+const milestoneActivityRoutes = require('./milestoneActivityRoutes');
 
 // --- Helper Function: Format Date for MySQL DATETIME column ---
 const formatToMySQLDateTime = (date) => {
@@ -80,6 +81,7 @@ const formatCurrencyForPdf = (value) => {
 // --- Mount the new routers for work plans and activities ---
 router.use('/workplans', annualWorkPlanRoutes);
 router.use('/activities', activityRoutes);
+router.use('/milestone-activities', milestoneActivityRoutes);
 
 // --- CRUD Operations for Strategic Plans (kemri_strategicPlans) ---
 router.get('/strategic_plans', async (req, res) => {

@@ -81,7 +81,7 @@ router.get('/:milestoneId', async (req, res) => {
 router.post('/', async (req, res) => {
     // TODO: Get userId from authenticated user (e.g., req.user.userId)
     const userId = 1; // Placeholder for now
-    const { projectId, milestoneName, milestoneDescription, dueDate, completed, completedDate, sequenceOrder, progress, weight } = req.body; // NEW: Added progress and weight
+    const { projectId, milestoneName, description, dueDate, completed, completedDate, sequenceOrder, progress, weight } = req.body; // NEW: Added progress and weight
     
     // Ensure `completed` is a boolean, and `completedDate` is set if `completed` is true
     const isCompleted = completed ? 1 : 0;
@@ -94,7 +94,7 @@ router.post('/', async (req, res) => {
     const newMilestone = {
         projectId,
         milestoneName,
-        milestoneDescription,
+        description,
         dueDate,
         completed: isCompleted,
         completedDate: completionDate,
@@ -135,14 +135,14 @@ router.post('/', async (req, res) => {
  */
 router.put('/:milestoneId', async (req, res) => {
     const { milestoneId } = req.params;
-    const { projectId, milestoneName, milestoneDescription, dueDate, completed, completedDate, sequenceOrder, progress, weight } = req.body; // NEW: Added progress and weight
+    const { projectId, milestoneName, description, dueDate, completed, completedDate, sequenceOrder, progress, weight } = req.body; // NEW: Added progress and weight
     
     const isCompleted = completed ? 1 : 0;
     const completionDate = completed ? (completedDate || new Date()) : null;
     
     const updatedFields = {
         milestoneName,
-        milestoneDescription,
+        description,
         dueDate,
         completed: isCompleted,
         completedDate: completionDate,

@@ -1,4 +1,3 @@
-// src/routes/activityRoutes.js
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db'); // Import the database connection pool
@@ -62,74 +61,137 @@ router.get('/:activityId', async (req, res) => {
     }
 });
 
-// POST a new activity
+// POST a new activity (CORRECTED)
 router.post('/', async (req, res) => {
+    const { milestoneIds, ...clientData } = req.body;
+    
     const newActivity = {
-        ...req.body,
-        // CORRECTED: Format date fields
-        startDate: formatToMySQLDate(req.body.startDate),
-        endDate: formatToMySQLDate(req.body.endDate),
+        ...clientData,
+        startDate: formatToMySQLDate(clientData.startDate),
+        endDate: formatToMySQLDate(clientData.endDate),
         voided: 0,
         createdAt: formatToMySQLDateTime(new Date()),
         updatedAt: formatToMySQLDateTime(new Date()),
     };
     delete newActivity.activityId;
 
+    let connection;
     try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
         console.log('Inserting Activity:', newActivity);
-        const [result] = await pool.query('INSERT INTO kemri_activities SET ?', newActivity);
-        if (result.insertId) {
-            newActivity.activityId = result.insertId;
+        const [result] = await connection.query('INSERT INTO kemri_activities SET ?', newActivity);
+        const newActivityId = result.insertId;
+
+        if (milestoneIds && milestoneIds.length > 0) {
+            const milestoneLinks = milestoneIds.map(milestoneId => [milestoneId, newActivityId]);
+            await connection.query(
+                'INSERT INTO kemri_milestone_activities (milestoneId, activityId) VALUES ?',
+                [milestoneLinks]
+            );
         }
-        res.status(201).json(newActivity);
+
+        await connection.commit();
+        const [rows] = await connection.query('SELECT * FROM kemri_activities WHERE activityId = ?', [newActivityId]);
+        res.status(201).json({ ...rows[0], milestoneIds });
     } catch (error) {
-        console.error('Error creating activity:', error);
-        res.status(500).json({ message: 'Error creating activity', error: error.message });
+        if (connection) await connection.rollback();
+        console.error('Error creating activity and linking milestones:', error);
+        res.status(500).json({ message: 'Error creating activity and linking milestones', error: error.message });
+    } finally {
+        if (connection) connection.release();
     }
 });
 
-// PUT an existing activity
+// PUT an existing activity (CORRECTED)
 router.put('/:activityId', async (req, res) => {
     const { activityId } = req.params;
+    const { milestoneIds, ...clientData } = req.body;
+    
     const updatedFields = {
-        ...req.body,
-        // CORRECTED: Format date fields if they exist
-        startDate: req.body.startDate ? formatToMySQLDate(req.body.startDate) : undefined,
-        endDate: req.body.endDate ? formatToMySQLDate(req.body.endDate) : undefined,
+        ...clientData,
+        startDate: clientData.startDate ? formatToMySQLDate(clientData.startDate) : undefined,
+        endDate: clientData.endDate ? formatToMySQLDate(clientData.endDate) : undefined,
         updatedAt: formatToMySQLDateTime(new Date()),
     };
     delete updatedFields.activityId;
     delete updatedFields.voided;
     delete updatedFields.createdAt;
+    
+    // Fix: Explicitly remove milestoneId to prevent the 'Unknown column' error
+    delete updatedFields.milestoneId;
 
+    let connection;
     try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
         console.log(`Updating Activity ${activityId}:`, updatedFields);
-        const [result] = await pool.query('UPDATE kemri_activities SET ? WHERE activityId = ?', [updatedFields, activityId]);
+        const [result] = await connection.query('UPDATE kemri_activities SET ? WHERE activityId = ?', [updatedFields, activityId]);
+
+        // Handle milestone links
+        if (milestoneIds) {
+            const [existingLinks] = await connection.query('SELECT * FROM kemri_milestone_activities WHERE activityId = ?', [activityId]);
+            const existingMilestoneIds = new Set(existingLinks.map(link => link.milestoneId));
+            const newMilestoneIds = new Set(milestoneIds);
+            
+            const toAdd = [...newMilestoneIds].filter(id => !existingMilestoneIds.has(id));
+            const toRemove = [...existingMilestoneIds].filter(id => !newMilestoneIds.has(id));
+            
+            if (toAdd.length > 0) {
+                const addValues = toAdd.map(milestoneId => [milestoneId, activityId]);
+                await connection.query('INSERT INTO kemri_milestone_activities (milestoneId, activityId) VALUES ?', [addValues]);
+            }
+            if (toRemove.length > 0) {
+                await connection.query('DELETE FROM kemri_milestone_activities WHERE activityId = ? AND milestoneId IN (?)', [activityId, toRemove]);
+            }
+        }
+        
+        await connection.commit();
+        
         if (result.affectedRows > 0) {
-            const [rows] = await pool.query('SELECT * FROM kemri_activities WHERE activityId = ?', [activityId]);
+            const [rows] = await connection.query('SELECT * FROM kemri_activities WHERE activityId = ?', [activityId]);
             res.status(200).json(rows[0]);
         } else {
             res.status(404).json({ message: 'Activity not found' });
         }
     } catch (error) {
-        console.error('Error updating activity:', error);
-        res.status(500).json({ message: 'Error updating activity', error: error.message });
+        if (connection) await connection.rollback();
+        console.error('Error updating activity and milestones:', error);
+        res.status(500).json({ message: 'Error updating activity and milestones', error: error.message });
+    } finally {
+        if (connection) connection.release();
     }
 });
 
 // DELETE an activity (soft delete)
 router.delete('/:activityId', async (req, res) => {
     const { activityId } = req.params;
+    let connection;
     try {
-        const [result] = await pool.query('UPDATE kemri_activities SET voided = 1 WHERE activityId = ?', [activityId]);
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        // First, delete links from the junction table
+        await connection.query('DELETE FROM kemri_milestone_activities WHERE activityId = ?', [activityId]);
+
+        // Then, soft delete the activity itself
+        const [result] = await connection.query('UPDATE kemri_activities SET voided = 1 WHERE activityId = ?', [activityId]);
+        
+        await connection.commit();
+
         if (result.affectedRows > 0) {
             res.status(204).send();
         } else {
             res.status(404).json({ message: 'Activity not found' });
         }
     } catch (error) {
+        if (connection) await connection.rollback();
         console.error('Error soft-deleting activity:', error);
         res.status(500).json({ message: 'Error soft-deleting activity', error: error.message });
+    } finally {
+        if (connection) connection.release();
     }
 });
 

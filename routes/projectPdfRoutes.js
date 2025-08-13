@@ -28,7 +28,6 @@ const formatBooleanForMySQL = (value) => {
     return null;
 };
 
-
 // --- New Route for Exporting Project Data as a PDF ---
 /**
  * @route GET /api/projects/:projectId/export-pdf
@@ -36,29 +35,32 @@ const formatBooleanForMySQL = (value) => {
  */
 router.get('/:projectId/export-pdf', async (req, res) => {
     const { projectId } = req.params;
+    let connection;
 
     try {
+        connection = await pool.getConnection();
+
         // Fetch all data for the project and its related KDSP II modules
-        const [projectData] = await pool.query('SELECT * FROM kemri_projects WHERE id = ?', [projectId]);
+        const [projectData] = await connection.query('SELECT * FROM kemri_projects WHERE id = ?', [projectId]);
         if (projectData.length === 0) {
             return res.status(404).json({ message: 'Project not found.' });
         }
         const project = projectData[0];
 
         // Fetch all related KDSP II data
-        const [conceptNote] = await pool.query('SELECT * FROM kemri_project_concept_notes WHERE projectId = ?', [projectId]);
-        const [needsAssessment] = await pool.query('SELECT * FROM kemri_project_needs_assessment WHERE projectId = ?', [projectId]);
-        const [financials] = await pool.query('SELECT * FROM kemri_project_financials WHERE projectId = ?', [projectId]);
-        const [fyBreakdown] = await pool.query('SELECT * FROM kemri_project_fy_breakdown WHERE projectId = ?', [projectId]);
-        const [sustainability] = await pool.query('SELECT * FROM kemri_project_sustainability WHERE projectId = ?', [projectId]);
-        const [implementationPlan] = await pool.query('SELECT * FROM kemri_project_implementation_plan WHERE projectId = ?', [projectId]);
-        const [mAndE] = await pool.query('SELECT * FROM kemri_project_m_and_e WHERE projectId = ?', [projectId]);
-        const [risks] = await pool.query('SELECT * FROM kemri_project_risks WHERE projectId = ?', [projectId]);
-        const [stakeholders] = await pool.query('SELECT * FROM kemri_project_stakeholders WHERE projectId = ?', [projectId]);
-        const [readiness] = await pool.query('SELECT * FROM kemri_project_readiness WHERE projectId = ?', [projectId]);
-        const [hazardAssessment] = await pool.query('SELECT * FROM kemri_project_hazard_assessment WHERE projectId = ?', [projectId]);
-        const [climateRisk] = await pool.query('SELECT * FROM kemri_project_climate_risk WHERE projectId = ?', [projectId]);
-        const [esohsgScreening] = await pool.query('SELECT * FROM kemri_project_esohsg_screening WHERE projectId = ?', [projectId]);
+        const [conceptNote] = await connection.query('SELECT * FROM kemri_project_concept_notes WHERE projectId = ?', [projectId]);
+        const [needsAssessment] = await connection.query('SELECT * FROM kemri_project_needs_assessment WHERE projectId = ?', [projectId]);
+        const [financials] = await connection.query('SELECT * FROM kemri_project_financials WHERE projectId = ?', [projectId]);
+        const [fyBreakdown] = await connection.query('SELECT * FROM kemri_project_fy_breakdown WHERE projectId = ?', [projectId]);
+        const [sustainability] = await connection.query('SELECT * FROM kemri_project_sustainability WHERE projectId = ?', [projectId]);
+        const [implementationPlan] = await connection.query('SELECT * FROM kemri_project_implementation_plan WHERE projectId = ?', [projectId]);
+        const [mAndE] = await connection.query('SELECT * FROM kemri_project_m_and_e WHERE projectId = ?', [projectId]);
+        const [risks] = await connection.query('SELECT * FROM kemri_project_risks WHERE projectId = ?', [projectId]);
+        const [stakeholders] = await connection.query('SELECT * FROM kemri_project_stakeholders WHERE projectId = ?', [projectId]);
+        const [readiness] = await connection.query('SELECT * FROM kemri_project_readiness WHERE projectId = ?', [projectId]);
+        const [hazardAssessment] = await connection.query('SELECT * FROM kemri_project_hazard_assessment WHERE projectId = ?', [projectId]);
+        const [climateRisk] = await connection.query('SELECT * FROM kemri_project_climate_risk WHERE projectId = ?', [projectId]);
+        const [esohsgScreening] = await connection.query('SELECT * FROM kemri_project_esohsg_screening WHERE projectId = ?', [projectId]);
 
         // Create a new PDF document
         const doc = new PDFDocument();
