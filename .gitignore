@@ -6,7 +6,7 @@ package-lock.json
 # Sensitive data and user uploads
 uploads/
 dump/
-
+templates/
 # Generated files and temporary data
 data_testing/
 .DS_Store # macOS system files
