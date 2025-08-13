@@ -521,19 +521,47 @@ router.delete('/attachments/:id', async (req, res) => {
     }
 });
 
+// --- Header Maps (moved to global scope for access by both routes) ---
+const combinedHeaderMap = {
+    'plan_cidpid': 'Plan_CIDPID', 'plan cidpid': 'Plan_CIDPID', 'planid': 'Plan_CIDPID',
+    'plan_name': 'Plan_Name', 'plan name': 'Plan_Name',
+    'plan_startdate': 'Plan_StartDate', 'plan start date': 'Plan_StartDate', 'planstartdate': 'Plan_StartDate',
+    'plan_enddate': 'Plan_EndDate', 'plan end date': 'Plan_EndDate', 'planenddate': 'Plan_EndDate',
 
-// --- Route for Downloading Strategic Plan Template ---
-router.get('/download-template', (req, res) => {
-    const templateFilePath = path.join(__dirname, '..', 'templates', 'strategic_plan_template.xlsx');
-    console.log('Attempting to send template from:', templateFilePath);
+    'program_name': 'Program_Name', 'program name': 'Program_Name', 'programname': 'Program_Name',
+    'program_department': 'Program_Department', 'program department': 'Program_Department', 'programdepartment': 'Program_Department',
+    'program_section': 'Program_Section', 'program section': 'Program_Section', 'programsection': 'Program_Section',
+    'program_needspriorities': 'Program_NeedsPriorities', 'program needs priorities': 'Program_NeedsPriorities', 'programneedspriorities': 'Program_NeedsPriorities',
+    'program_strategies': 'Program_Strategies', 'program strategies': 'Program_Strategies', 'programstrategies': 'Program_Strategies',
+    'program_objectives': 'Program_Objectives', 'program objectives': 'Program_Objectives', 'programobjectives': 'Program_Objectives',
+    'program_outcomes': 'Program_Outcomes', 'program outcomes': 'Program_Outcomes', 'programoutcomes': 'Program_Outcomes',
+    'program_remarks': 'Program_Remarks', 'program remarks': 'Program_Remarks', 'programremarks': 'Program_Remarks',
+    'key result area': 'Program_Name', 'kra': 'Program_Name', 'strategic objective': 'Program_Name',
 
-    res.download(templateFilePath, 'strategic_plan_template.xlsx', (err) => {
-        if (err) {
-            console.error('Error sending template file:', err);
-            res.status(500).json({ message: 'Failed to download template file.', error: err.message });
-        }
-    });
-});
+    'subprogram_name': 'Subprogram_Name', 'subprogram name': 'Subprogram_Name', 'subprogramname': 'Subprogram_Name',
+    'subprogram_keyoutcome': 'Subprogram_KeyOutcome', 'subprogram key outcome': 'Subprogram_KeyOutcome', 'subprogramkeyoutcome': 'Subprogram_KeyOutcome',
+    'subprogram_kpi': 'Subprogram_KPI', 'subprogram kpi': 'Subprogram_KPI', 'subprogramkpi': 'Subprogram_KPI',
+    'subprogram_baseline': 'Subprogram_Baseline', 'subprogram baseline': 'Subprogram_Baseline', 'subprogrambaseline': 'Subprogram_Baseline',
+    'subprogram_yr1targets': 'Subprogram_Yr1Targets', 'subprogram yr1 targets': 'Subprogram_Yr1Targets', 'subprogramyr1targets': 'Subprogram_Yr1Targets',
+    'subprogram_yr2targets': 'Subprogram_Yr2Targets', 'subprogram_yr3targets': 'Subprogram_Yr3Targets', 'subprogram_yr4targets': 'Subprogram_Yr4Targets', 'subprogram_yr5targets': 'Subprogram_Yr5Targets',
+    'subprogram_yr1budget': 'Subprogram_Yr1Budget', 'subprogram_yr2budget': 'Subprogram_Yr2Budget', 'subprogram_yr3budget': 'Subprogram_Yr3Budget', 'subprogram_yr4budget': 'Subprogram_Yr4Budget', 'subprogram_yr5budget': 'Subprogram_Yr5Budget',
+    'subprogram_totalbudget': 'Subprogram_TotalBudget', 'subprogram total budget': 'Subprogram_TotalBudget', 'subprogramtotalbudget': 'Subprogram_TotalBudget',
+    'subprogram_remarks': 'Subprogram_Remarks', 'subprogram remarks': 'Subprogram_Remarks', 'subprogramremarks': 'Subprogram_Remarks',
+    'initiative': 'Subprogram_Name', 'action plan': 'Subprogram_Name', 'project activity': 'Subprogram_Name',
+    // NEW: Add mappings for Project, Work Plan, and Activity headers
+    'workplan_name': 'Workplan_Name', 'work plan name': 'Workplan_Name',
+    'workplan_financialyear': 'Workplan_FinancialYear', 'workplan financial year': 'Workplan_FinancialYear',
+    'workplan_totalbudget': 'Workplan_TotalBudget', 'workplan total budget': 'Workplan_TotalBudget',
+    'project_name': 'Project_Name', 'project name': 'Project_Name',
+    'project_category': 'Project_Category', 'project category': 'Project_Category',
+    'project_cost': 'Project_Cost', 'project cost': 'Project_Cost',
+    'milestone_name': 'Milestone_Name', 'milestone name': 'Milestone_Name',
+    'milestone_duedate': 'Milestone_DueDate', 'milestone due date': 'Milestone_DueDate',
+    'activity_name': 'Activity_Name', 'activity name': 'Activity_Name',
+    'activity_startdate': 'Activity_StartDate', 'activity start date': 'Activity_StartDate',
+    'activity_enddate': 'Activity_EndDate', 'activity end date': 'Activity_EndDate',
+    'activity_budgetallocated': 'Activity_BudgetAllocated', 'activity budget allocated': 'Activity_BudgetAllocated',
+};
 
 
 // --- Route for Previewing Strategic Plan Data from Excel ---
@@ -565,46 +593,18 @@ router.post('/import-cidp', upload.single('importFile'), async (req, res) => {
             errors: []
         };
 
-        const headerMap = {
-            'plan_cidpid': 'Plan_CIDPID', 'plan cidpid': 'Plan_CIDPID', 'planid': 'Plan_CIDPID',
-            'plan_name': 'Plan_Name', 'plan name': 'Plan_Name',
-            'plan_startdate': 'Plan_StartDate', 'plan start date': 'Plan_StartDate', 'planstartdate': 'Plan_StartDate',
-            'plan_enddate': 'Plan_EndDate', 'plan end date': 'Plan_EndDate', 'planenddate': 'Plan_EndDate',
-
-            'program_name': 'Program_Name', 'program name': 'Program_Name', 'programname': 'Program_Name',
-            'program_department': 'Program_Department', 'program department': 'Program_Department', 'programdepartment': 'Program_Department',
-            'program_section': 'Program_Section', 'program section': 'Program_Section', 'programsection': 'Program_Section',
-            'program_needspriorities': 'Program_NeedsPriorities', 'program needs priorities': 'Program_NeedsPriorities', 'programneedspriorities': 'Program_NeedsPriorities',
-            'program_strategies': 'Program_Strategies', 'program strategies': 'Program_Strategies', 'programstrategies': 'Program_Strategies',
-            'program_objectives': 'Program_Objectives', 'program objectives': 'Program_Objectives', 'programobjectives': 'Program_Objectives',
-            'program_outcomes': 'Program_Outcomes', 'program outcomes': 'Program_Outcomes', 'programoutcomes': 'Program_Outcomes',
-            'program_remarks': 'Program_Remarks', 'program remarks': 'Program_Remarks', 'programremarks': 'Program_Remarks',
-            'key result area': 'Program_Name', 'kra': 'Program_Name', 'strategic objective': 'Program_Name',
-
-            'subprogram_name': 'Subprogram_Name', 'subprogram name': 'Subprogram_Name', 'subprogramname': 'Subprogram_Name',
-            'subprogram_keyoutcome': 'Subprogram_KeyOutcome', 'subprogram key outcome': 'Subprogram_KeyOutcome', 'subprogramkeyoutcome': 'Subprogram_KeyOutcome',
-            'subprogram_kpi': 'Subprogram_KPI', 'subprogram kpi': 'Subprogram_KPI', 'subprogramkpi': 'Subprogram_KPI',
-            'subprogram_baseline': 'Subprogram_Baseline', 'subprogram baseline': 'Subprogram_Baseline', 'subprogrambaseline': 'Subprogram_Baseline',
-            'subprogram_yr1targets': 'Subprogram_Yr1Targets', 'subprogram yr1 targets': 'Subprogram_Yr1Targets', 'subprogramyr1targets': 'Subprogram_Yr1Targets',
-            'subprogram_yr2targets': 'Subprogram_Yr2Targets', 'subprogram_yr3targets': 'Subprogram_Yr3Targets', 'subprogram_yr4targets': 'Subprogram_Yr4Targets', 'subprogram_yr5targets': 'Subprogram_Yr5Targets',
-            'subprogram_yr1budget': 'Subprogram_Yr1Budget', 'subprogram_yr2budget': 'Subprogram_Yr2Budget', 'subprogram_yr3budget': 'Subprogram_Yr3Budget', 'subprogram_yr4budget': 'Subprogram_Yr4Budget', 'subprogram_yr5budget': 'Subprogram_Yr5Budget',
-            'subprogram_totalbudget': 'Subprogram_TotalBudget', 'subprogram total budget': 'Subprogram_TotalBudget', 'subprogramtotalbudget': 'Subprogram_TotalBudget',
-            'subprogram_remarks': 'Subprogram_Remarks', 'subprogram remarks': 'Subprogram_Remarks', 'subprogramremarks': 'Subprogram_Remarks',
-            'initiative': 'Subprogram_Name', 'action plan': 'Subprogram_Name', 'project activity': 'Subprogram_Name',
-        };
-
         const mapRowToObject = (rowArray) => {
             const obj = {};
             headers.forEach((rawHeader, index) => {
                 const normalizedHeaderKey = String(rawHeader).toLowerCase().replace(/[^a-z0-9]/g, '');
-                const targetHeader = headerMap[normalizedHeaderKey] || rawHeader;
-                if (!Object.values(headerMap).includes(targetHeader) && !importSummary.unrecognizedHeaders.includes(rawHeader)) {
+                const targetHeader = combinedHeaderMap[normalizedHeaderKey] || rawHeader;
+                if (!Object.values(combinedHeaderMap).includes(targetHeader) && !importSummary.unrecognizedHeaders.includes(rawHeader)) {
                     importSummary.unrecognizedHeaders.push(rawHeader);
                 }
                 let value = rowArray[index];
                 if (value === '' || value === null || value === undefined) {
                     obj[targetHeader] = null;
-                } else if (typeof value === 'number' && (targetHeader.includes('Targets') || targetHeader.includes('Budget'))) {
+                } else if (typeof value === 'number' && (targetHeader.includes('Targets') || targetHeader.includes('Budget') || targetHeader.includes('Cost'))) {
                     obj[targetHeader] = value;
                 } else if (typeof value === 'object' && value instanceof Date) {
                     obj[targetHeader] = value.toISOString().split('T')[0];
@@ -612,6 +612,11 @@ router.post('/import-cidp', upload.single('importFile'), async (req, res) => {
                     obj[targetHeader] = value;
                 }
             });
+            // NEW: Calculate Subprogram_TotalBudget for preview
+            const yrlyBudgets = ['Subprogram_Yr1Budget', 'Subprogram_Yr2Budget', 'Subprogram_Yr3Budget', 'Subprogram_Yr4Budget', 'Subprogram_Yr5Budget'];
+            const totalBudget = yrlyBudgets.reduce((sum, key) => sum + (parseFloat(obj[key]) || 0), 0);
+            obj['Subprogram_TotalBudget'] = totalBudget;
+
             return obj;
         };
 
@@ -652,6 +657,10 @@ router.post('/confirm-import-cidp', upload.none(), async (req, res) => {
         plansCreated: 0, plansUpdated: 0,
         programsCreated: 0, programsUpdated: 0,
         subprogramsCreated: 0, subprogramsUpdated: 0,
+        projectsCreated: 0, projectsUpdated: 0,
+        workplansCreated: 0, workplansUpdated: 0,
+        activitiesCreated: 0, activitiesUpdated: 0,
+        milestonesCreated: 0, milestonesUpdated: 0,
         errors: []
     };
 
@@ -662,10 +671,11 @@ router.post('/confirm-import-cidp', upload.none(), async (req, res) => {
                 let value = row[key];
                 if (value === '' || value === null || value === undefined) {
                     processedRow[key] = null;
-                } else if (typeof value === 'number' && (key.includes('Targets') || key.includes('Budget'))) {
+                } else if (typeof value === 'string' && (key.includes('Budget') || key.includes('Cost') || key.includes('Targets') || key.includes('Baseline'))) {
+                    const numericValue = Number(String(value).replace(/,/g, ''));
+                    processedRow[key] = isNaN(numericValue) ? null : numericValue;
+                } else if (typeof value === 'string' && (key.includes('Date') || key.includes('StartDate') || key.includes('EndDate'))) {
                     processedRow[key] = value;
-                } else if (typeof value === 'string' && (key.includes('StartDate') || key.includes('EndDate'))) {
-                    processedRow[key] = formatToMySQLDateTime(value);
                 } else {
                     processedRow[key] = value;
                 }
@@ -673,6 +683,14 @@ router.post('/confirm-import-cidp', upload.none(), async (req, res) => {
         }
         return processedRow;
     };
+    
+    // --- Helper Maps to cache existing records and avoid duplicates ---
+    const planMap = new Map();
+    const programMap = new Map();
+    const subprogramMap = new Map();
+    const projectMap = new Map();
+    const workplanMap = new Map();
+    const categoryMap = new Map();
 
 
     try {
@@ -681,116 +699,272 @@ router.post('/confirm-import-cidp', upload.none(), async (req, res) => {
 
         for (const row of dataToImport) {
             const processedRow = processRowForDB(row);
+            
+            // NEW: Skip empty rows
+            if (!processedRow['Plan_CIDPID'] && !processedRow['Program_Name'] && !processedRow['Subprogram_Name'] && !processedRow['Project_Name']) {
+                continue;
+            }
+
             try {
-                let strategicPlanId = null;
+                // --- 1. Strategic Plan ---
+                let planId = null;
                 let planCidpId = processedRow['Plan_CIDPID'];
+                if (!planCidpId) { throw new Error('Plan_CIDPID is missing.'); }
 
-                if (!planCidpId) {
-                    throw new Error('Plan_CIDPID is missing for a row.');
-                }
-
-                const [existingPlans] = await connection.query('SELECT id FROM kemri_strategicPlans WHERE cidpid = ?', [planCidpId]);
-                if (existingPlans.length > 0) {
-                    strategicPlanId = existingPlans[0].id;
-                    await connection.query(
-                        'UPDATE kemri_strategicPlans SET cidpName = ?, startDate = ?, endDate = ? WHERE id = ?',
-                        [processedRow['Plan_Name'], processedRow['Plan_StartDate'], processedRow['Plan_EndDate'], strategicPlanId]
-                    );
-                    importSummary.plansUpdated++;
+                if (planMap.has(planCidpId)) {
+                    planId = planMap.get(planCidpId);
                 } else {
-                    const [insertResult] = await connection.query(
-                        'INSERT INTO kemri_strategicPlans SET cidpid = ?, cidpName = ?, startDate = ?, endDate = ?',
-                        [planCidpId, processedRow['Plan_Name'], processedRow['Plan_StartDate'], processedRow['Plan_EndDate']]
-                    );
-                    strategicPlanId = insertResult.insertId;
-                    importSummary.plansCreated++;
+                    const [existingPlans] = await connection.query('SELECT id FROM kemri_strategicPlans WHERE cidpid = ?', [planCidpId]);
+                    if (existingPlans.length > 0) {
+                        planId = existingPlans[0].id;
+                        await connection.query('UPDATE kemri_strategicPlans SET cidpName = ?, startDate = ?, endDate = ? WHERE id = ?', [processedRow['Plan_Name'], processedRow['Plan_StartDate'], processedRow['Plan_EndDate'], planId]);
+                        importSummary.plansUpdated++;
+                    } else {
+                        const [insertResult] = await connection.query('INSERT INTO kemri_strategicPlans SET cidpid = ?, cidpName = ?, startDate = ?, endDate = ?', [planCidpId, processedRow['Plan_Name'], processedRow['Plan_StartDate'], processedRow['Plan_EndDate']]);
+                        planId = insertResult.insertId;
+                        importSummary.plansCreated++;
+                    }
+                    planMap.set(planCidpId, planId);
                 }
 
+                // --- 2. Program ---
                 let programId = null;
                 let programName = processedRow['Program_Name'];
+                if (!programName) { throw new Error('Program_Name is missing.'); }
+                const programKey = `${planCidpId}-${programName}`;
 
-                if (!programName) {
-                    throw new Error('Program_Name is missing for a row.');
-                }
-
-                const [existingPrograms] = await connection.query('SELECT programId FROM kemri_programs WHERE programme = ? AND cidpid = ?', [programName, planCidpId]);
-                if (existingPrograms.length > 0) {
-                    programId = existingPrograms[0].programId;
-                    importSummary.programsUpdated++;
+                if (programMap.has(programKey)) {
+                    programId = programMap.get(programKey);
                 } else {
-                    let departmentId = null;
-                    if (processedRow['Program_Department']) {
-                        const [deptRows] = await connection.query('SELECT departmentId FROM kemri_departments WHERE name = ?', [processedRow['Program_Department']]);
-                        if (deptRows.length > 0) {
-                            departmentId = deptRows[0].departmentId;
-                        } else {
-                            const [newDept] = await connection.query('INSERT INTO kemri_departments (name) VALUES (?)', [processedRow['Program_Department']]);
-                            departmentId = newDept.insertId;
+                    const [existingPrograms] = await connection.query('SELECT programId FROM kemri_programs WHERE programme = ? AND cidpid = ?', [programName, planCidpId]);
+                    if (existingPrograms.length > 0) {
+                        programId = existingPrograms[0].programId;
+                        await connection.query('UPDATE kemri_programs SET needsPriorities = ?, strategies = ?, objectives = ?, outcomes = ?, remarks = ? WHERE programId = ?', [processedRow['Program_NeedsPriorities'], processedRow['Program_Strategies'], processedRow['Program_Objectives'], processedRow['Program_Outcomes'], processedRow['Program_Remarks'], programId]);
+                        importSummary.programsUpdated++;
+                    } else {
+                        let departmentId = null;
+                        if (processedRow['Program_Department']) {
+                            const [deptRows] = await connection.query('SELECT departmentId FROM kemri_departments WHERE name = ?', [processedRow['Program_Department']]);
+                            if (deptRows.length > 0) {
+                                departmentId = deptRows[0].departmentId;
+                            } else {
+                                const [newDept] = await connection.query('INSERT INTO kemri_departments (name) VALUES (?)', [processedRow['Program_Department']]);
+                                departmentId = newDept.insertId;
+                            }
                         }
-                    }
-
-                    let sectionId = null;
-                    if (processedRow['Program_Section'] && departmentId) {
-                        const [secRows] = await connection.query('SELECT sectionId FROM kemri_sections WHERE name = ? AND departmentId = ?', [processedRow['Program_Section'], departmentId]);
-                        if (secRows.length > 0) {
-                            sectionId = secRows[0].sectionId;
-                        } else {
-                            const [newSec] = await connection.query('INSERT INTO kemri_sections (name, departmentId) VALUES (?, ?)', [processedRow['Program_Section'], departmentId]);
-                            sectionId = newSec.insertId;
+                        let sectionId = null;
+                        if (processedRow['Program_Section'] && departmentId) {
+                            const [secRows] = await connection.query('SELECT sectionId FROM kemri_sections WHERE name = ? AND departmentId = ?', [processedRow['Program_Section'], departmentId]);
+                            if (secRows.length > 0) {
+                                sectionId = secRows[0].sectionId;
+                            } else {
+                                const [newSec] = await connection.query('INSERT INTO kemri_sections (name, departmentId) VALUES (?, ?)', [processedRow['Program_Section'], departmentId]);
+                                sectionId = newSec.insertId;
+                            }
                         }
+                        const [insertResult] = await connection.query('INSERT INTO kemri_programs SET cidpid = ?, programme = ?, departmentId = ?, sectionId = ?, needsPriorities = ?, strategies = ?, objectives = ?, outcomes = ?, remarks = ?', [planCidpId, programName, departmentId, sectionId, processedRow['Program_NeedsPriorities'], processedRow['Program_Strategies'], processedRow['Program_Objectives'], processedRow['Program_Outcomes'], processedRow['Program_Remarks']]);
+                        programId = insertResult.insertId;
+                        importSummary.programsCreated++;
                     }
-
-                    const [insertResult] = await connection.query(
-                        'INSERT INTO kemri_programs SET cidpid = ?, programme = ?, departmentId = ?, sectionId = ?, needsPriorities = ?, strategies = ?, objectives = ?, outcomes = ?, remarks = ?',
-                        [
-                            planCidpId, programName, departmentId, sectionId,
-                            processedRow['Program_NeedsPriorities'], processedRow['Program_Strategies'],
-                            processedRow['Program_Objectives'], processedRow['Program_Outcomes'], processedRow['Program_Remarks']
-                        ]
-                    );
-                    programId = insertResult.insertId;
-                    importSummary.programsCreated++;
+                    programMap.set(programKey, programId);
                 }
 
-                if (programId && processedRow['Subprogram_Name']) {
-                    const [existingSubprograms] = await connection.query('SELECT subProgramId FROM kemri_subprograms WHERE subProgramme = ? AND programId = ?', [processedRow['Subprogram_Name'], programId]);
+                // --- 3. Subprogram ---
+                let subProgramId = null;
+                let subprogramName = processedRow['Subprogram_Name'];
+                if (!subprogramName) { throw new Error('Subprogram_Name is missing.'); }
+                const subprogramKey = `${programId}-${subprogramName}`;
+
+                if (subprogramMap.has(subprogramKey)) {
+                    subProgramId = subprogramMap.get(subprogramKey);
+                } else {
+                    const [existingSubprograms] = await connection.query('SELECT subProgramId FROM kemri_subprograms WHERE subProgramme = ? AND programId = ?', [subprogramName, programId]);
+                    
+                    // NEW: Calculate total budget from yearly budgets
+                    const yearlyBudgets = [
+                      processedRow['Subprogram_Yr1Budget'],
+                      processedRow['Subprogram_Yr2Budget'],
+                      processedRow['Subprogram_Yr3Budget'],
+                      processedRow['Subprogram_Yr4Budget'],
+                      processedRow['Subprogram_Yr5Budget']
+                    ];
+                    const calculatedTotalBudget = yearlyBudgets.reduce((sum, budget) => sum + (parseFloat(budget) || 0), 0);
+
                     if (existingSubprograms.length > 0) {
-                        await connection.query(
-                            `UPDATE kemri_subprograms SET keyOutcome = ?, kpi = ?, baseline = ?,
-                             yr1Targets = ?, yr2Targets = ?, yr3Targets = ?, yr4Targets = ?, yr5Targets = ?,
-                             yr1Budget = ?, yr2Budget = ?, yr3Budget = ?, yr4Budget = ?, yr5Budget = ?,
-                             totalBudget = ?, remarks = ?
-                             WHERE subProgramId = ?`,
-                            [
-                                processedRow['Subprogram_KeyOutcome'], processedRow['Subprogram_KPI'], processedRow['Subprogram_Baseline'],
-                                processedRow['Subprogram_Yr1Targets'], processedRow['Subprogram_Yr2Targets'], processedRow['Subprogram_Yr3Targets'],
-                                processedRow['Subprogram_Yr4Targets'], processedRow['Subprogram_Yr5Targets'],
-                                processedRow['Subprogram_Yr1Budget'], processedRow['Subprogram_Yr2Budget'], processedRow['Subprogram_Yr3Budget'],
-                                processedRow['Subprogram_Yr4Budget'], processedRow['Subprogram_Yr5Budget'],
-                                processedRow['Subprogram_TotalBudget'], processedRow['Subprogram_Remarks'],
-                                existingSubprograms[0].subProgramId
-                            ]
-                        );
+                        subProgramId = existingSubprograms[0].subProgramId;
+                        await connection.query(`UPDATE kemri_subprograms SET keyOutcome = ?, kpi = ?, baseline = ?, yr1Targets = ?, yr2Targets = ?, yr3Targets = ?, yr4Targets = ?, yr5Targets = ?, yr1Budget = ?, yr2Budget = ?, yr3Budget = ?, yr4Budget = ?, yr5Budget = ?, totalBudget = ?, remarks = ? WHERE subProgramId = ?`, [
+                            processedRow['Subprogram_KeyOutcome'],
+                            processedRow['Subprogram_KPI'],
+                            processedRow['Subprogram_Baseline'],
+                            processedRow['Subprogram_Yr1Targets'],
+                            processedRow['Subprogram_Yr2Targets'],
+                            processedRow['Subprogram_Yr3Targets'],
+                            processedRow['Subprogram_Yr4Targets'],
+                            processedRow['Subprogram_Yr5Targets'],
+                            processedRow['Subprogram_Yr1Budget'],
+                            processedRow['Subprogram_Yr2Budget'],
+                            processedRow['Subprogram_Yr3Budget'],
+                            processedRow['Subprogram_Yr4Budget'],
+                            processedRow['Subprogram_Yr5Budget'],
+                            calculatedTotalBudget, // Use calculated total budget
+                            processedRow['Subprogram_Remarks'],
+                            subProgramId
+                        ]);
                         importSummary.subprogramsUpdated++;
                     } else {
-                        await connection.query(
-                            `INSERT INTO kemri_subprograms SET programId = ?, subProgramme = ?, keyOutcome = ?, kpi = ?, baseline = ?,
-                             yr1Targets = ?, yr2Targets = ?, yr3Targets = ?, yr4Targets = ?, yr5Targets = ?,
-                             yr1Budget = ?, yr2Budget = ?, yr3Budget = ?, yr4Budget = ?, yr5Budget = ?,
-                             totalBudget = ?, remarks = ?, voided = 0`,
-                            [
-                                programId, processedRow['Subprogram_Name'], processedRow['Subprogram_KeyOutcome'], processedRow['Subprogram_KPI'], processedRow['Subprogram_Baseline'],
-                                processedRow['Subprogram_Yr1Targets'], processedRow['Subprogram_Yr2Targets'], processedRow['Subprogram_Yr3Targets'],
-                                processedRow['Subprogram_Yr4Targets'], processedRow['Subprogram_Yr5Targets'],
-                                processedRow['Subprogram_Yr1Budget'], processedRow['Subprogram_Yr2Budget'], processedRow['Subprogram_Yr3Budget'],
-                                processedRow['Subprogram_Yr4Budget'], processedRow['Subprogram_Yr5Budget'],
-                                processedRow['Subprogram_TotalBudget'], processedRow['Subprogram_Remarks']
-                            ]
-                        );
+                        const [insertResult] = await connection.query(`INSERT INTO kemri_subprograms SET programId = ?, subProgramme = ?, keyOutcome = ?, kpi = ?, baseline = ?, yr1Targets = ?, yr2Targets = ?, yr3Targets = ?, yr4Targets = ?, yr5Targets = ?, yr1Budget = ?, yr2Budget = ?, yr3Budget = ?, yr4Budget = ?, yr5Budget = ?, totalBudget = ?, remarks = ?, voided = 0`, [
+                            programId,
+                            subprogramName,
+                            processedRow['Subprogram_KeyOutcome'],
+                            processedRow['Subprogram_KPI'],
+                            processedRow['Subprogram_Baseline'],
+                            processedRow['Subprogram_Yr1Targets'],
+                            processedRow['Subprogram_Yr2Targets'],
+                            processedRow['Subprogram_Yr3Targets'],
+                            processedRow['Subprogram_Yr4Targets'],
+                            processedRow['Subprogram_Yr5Targets'],
+                            processedRow['Subprogram_Yr1Budget'],
+                            processedRow['Subprogram_Yr2Budget'],
+                            processedRow['Subprogram_Yr3Budget'],
+                            processedRow['Subprogram_Yr4Budget'],
+                            processedRow['Subprogram_Yr5Budget'],
+                            calculatedTotalBudget, // Use calculated total budget
+                            processedRow['Subprogram_Remarks']
+                        ]);
+                        subProgramId = insertResult.insertId;
                         importSummary.subprogramsCreated++;
                     }
-                } else {
-                    throw new Error('Subprogram_Name or Program ID missing for a row.');
+                    subprogramMap.set(subprogramKey, subProgramId);
+                }
+
+                // --- 4. Project Category ---
+                let categoryId = null;
+                let projectCategoryName = processedRow['Project_Category'];
+                if (projectCategoryName) {
+                    if (categoryMap.has(projectCategoryName)) {
+                        categoryId = categoryMap.get(projectCategoryName);
+                    } else {
+                        const [existingCategory] = await connection.query('SELECT categoryId FROM kemri_project_milestone_implementations WHERE categoryName = ?', [projectCategoryName]);
+                        if (existingCategory.length > 0) {
+                            categoryId = existingCategory[0].categoryId;
+                        } else {
+                            const [insertResult] = await connection.query('INSERT INTO kemri_project_milestone_implementations SET categoryName = ?', [projectCategoryName]);
+                            categoryId = insertResult.insertId;
+                        }
+                        categoryMap.set(projectCategoryName, categoryId);
+                    }
+                }
+
+                // --- 5. Project ---
+                let projectId = null;
+                let projectName = processedRow['Project_Name'];
+                if (projectName) {
+                    const projectKey = `${subProgramId}-${projectName}`;
+                    if (projectMap.has(projectKey)) {
+                        projectId = projectMap.get(projectKey);
+                    } else {
+                        const [existingProject] = await connection.query('SELECT id FROM kemri_projects WHERE projectName = ? AND subProgramId = ?', [projectName, subProgramId]);
+                        if (existingProject.length > 0) {
+                            projectId = existingProject[0].id;
+                            importSummary.projectsUpdated++;
+                        } else {
+                            const projectData = {
+                                projectName: projectName,
+                                subProgramId: subProgramId,
+                                categoryId: categoryId,
+                                costOfProject: processedRow['Project_Cost'],
+                                projectDescription: null,
+                                startDate: null, // Project dates are not in this template
+                                endDate: null,
+                                status: 'planning',
+                            };
+                            const [insertResult] = await connection.query('INSERT INTO kemri_projects SET ?', projectData);
+                            projectId = insertResult.insertId;
+                            importSummary.projectsCreated++;
+                        }
+                        projectMap.set(projectKey, projectId);
+                    }
+                }
+
+                // --- 6. Workplan ---
+                let workplanId = null;
+                let workplanName = processedRow['Workplan_Name'];
+                if (workplanName) {
+                    const workplanKey = `${subProgramId}-${workplanName}`;
+                    if (workplanMap.has(workplanKey)) {
+                        workplanId = workplanMap.get(workplanKey);
+                    } else {
+                        const [existingWorkplan] = await connection.query('SELECT workplanId FROM kemri_annual_workplans WHERE workplanName = ? AND subProgramId = ?', [workplanName, subProgramId]);
+                        if (existingWorkplan.length > 0) {
+                            workplanId = existingWorkplan[0].workplanId;
+                            await connection.query('UPDATE kemri_annual_workplans SET totalBudget = ? WHERE workplanId = ?', [processedRow['Workplan_TotalBudget'], workplanId]);
+                            importSummary.workplansUpdated++;
+                        } else {
+                            const workplanData = {
+                                subProgramId: subProgramId,
+                                workplanName: workplanName,
+                                financialYear: processedRow['Workplan_FinancialYear'],
+                                totalBudget: processedRow['Workplan_TotalBudget'],
+                                approvalStatus: 'draft',
+                            };
+                            const [insertResult] = await connection.query('INSERT INTO kemri_annual_workplans SET ?', workplanData);
+                            workplanId = insertResult.insertId;
+                            importSummary.workplansCreated++;
+                        }
+                        workplanMap.set(workplanKey, workplanId);
+                    }
+                }
+
+                // --- 7. Milestone ---
+                let milestoneName = processedRow['Milestone_Name'];
+                if (milestoneName && projectId) {
+                    const [existingMilestone] = await connection.query('SELECT milestoneId FROM kemri_project_milestones WHERE milestoneName = ? AND projectId = ?', [milestoneName, projectId]);
+                    if (existingMilestone.length === 0) {
+                        const milestoneData = {
+                            projectId: projectId,
+                            milestoneName: milestoneName,
+                            dueDate: processedRow['Milestone_DueDate'] ? processedRow['Milestone_DueDate'] : null,
+                            sequenceOrder: 1, // Defaulting for import
+                            progress: 0,
+                            weight: 1,
+                        };
+                        await connection.query('INSERT INTO kemri_project_milestones SET ?', milestoneData);
+                        importSummary.milestonesCreated++;
+                    } else {
+                        importSummary.milestonesUpdated++; // Assume it was a duplicate and mark it as updated
+                    }
+                }
+
+                // --- 8. Activity ---
+                let activityName = processedRow['Activity_Name'];
+                if (activityName && workplanId && projectId) {
+                    const [existingActivity] = await connection.query('SELECT activityId FROM kemri_activities WHERE activityName = ? AND workplanId = ? AND projectId = ?', [activityName, workplanId, projectId]);
+                    if (existingActivity.length > 0) {
+                        importSummary.activitiesUpdated++;
+                    } else {
+                        const activityData = {
+                            workplanId: workplanId,
+                            projectId: projectId,
+                            activityName: activityName,
+                            startDate: processedRow['Activity_StartDate'],
+                            endDate: processedRow['Activity_EndDate'],
+                            budgetAllocated: processedRow['Activity_BudgetAllocated'],
+                            activityStatus: 'not_started',
+                            percentageComplete: 0,
+                        };
+                        const [insertResult] = await connection.query('INSERT INTO kemri_activities SET ?', activityData);
+                        const newActivityId = insertResult.insertId;
+                        importSummary.activitiesCreated++;
+                        
+                        // Link activity to milestone if present in row
+                        if (milestoneName) {
+                            const [milestoneRows] = await connection.query('SELECT milestoneId FROM kemri_project_milestones WHERE milestoneName = ? AND projectId = ?', [milestoneName, projectId]);
+                            if (milestoneRows.length > 0) {
+                                const milestoneId = milestoneRows[0].milestoneId;
+                                await connection.query('INSERT INTO kemri_milestone_activities (milestoneId, activityId) VALUES (?, ?)', [milestoneId, newActivityId]);
+                            }
+                        }
+                    }
                 }
 
             } catch (rowError) {
