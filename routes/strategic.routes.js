@@ -521,6 +521,21 @@ router.delete('/attachments/:id', async (req, res) => {
     }
 });
 
+
+// --- Route for Downloading Strategic Plan Template ---
+router.get('/download-template', (req, res) => {
+    const templateFilePath = path.join(__dirname, '..', 'templates', 'strategic_plan_template.xlsx');
+    console.log('Attempting to send template from:', templateFilePath);
+
+    res.download(templateFilePath, 'strategic_plan_template.xlsx', (err) => {
+        if (err) {
+            console.error('Error sending template file:', err);
+            res.status(500).json({ message: 'Failed to download template file.', error: err.message });
+        }
+    });
+});
+
+
 // --- Header Maps (moved to global scope for access by both routes) ---
 const combinedHeaderMap = {
     'plan_cidpid': 'Plan_CIDPID', 'plan cidpid': 'Plan_CIDPID', 'planid': 'Plan_CIDPID',

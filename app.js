@@ -18,7 +18,6 @@ const taskRoutes = require('./routes/taskRoutes');
 const milestoneRoutes = require('./routes/milestoneRoutes');
 const taskAssigneesRoutes = require('./routes/taskAssigneesRoutes');
 const taskDependenciesRoutes = require('./routes/taskDependenciesRoutes');
-const publicStrategyRoutes = require('./routes/publicStrategyRoutes');
 const projectConceptNoteRoutes = require('./routes/projectConceptNoteRoutes');
 const projectNeedsAssessmentRoutes = require('./routes/projectNeedsAssessmentRoutes');
 const projectFinancialsRoutes = require('./routes/projectFinancialsRoutes');
@@ -71,7 +70,6 @@ app.get('/', (req, res) => {
 
 // --- Public Routes (No Authentication Required) ---
 app.use('/api/auth', authRoutes);
-app.use('/api/strategy', publicStrategyRoutes);
 
 // --- Protected Routes (Authentication Required) ---
 app.use('/api', authenticate); 
