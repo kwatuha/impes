@@ -38,19 +38,15 @@ const { projectRouter: projectPhotoRouter, photoRouter } = require('./routes/pro
 const contractorRoutes = require('./routes/contractorRoutes');
 const paymentRequestRoutes = require('./routes/paymentRequestRoutes');
 const contractorPhotoRoutes = require('./routes/contractorPhotoRoutes');
+const hrRoutes = require('./routes/humanResourceRoutes');
 
 
 const app = express();
-const port = 3000;
+const port = 3000; 
 
 // --- CORS Configuration ---
 const corsOptions = {
-  origin: [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'http://localhost:3000',
-    'http://192.168.100.12:5173',
-  ],
+  origin: '*', // Allow all origins for development
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
   credentials: true,
   optionsSuccessStatus: 204
@@ -110,6 +106,7 @@ app.use('/api/project_photos', photoRouter);
 app.use('/api/contractors', contractorRoutes);
 app.use('/api/payment-requests', paymentRequestRoutes);
 app.use('/api/contractor-photos', contractorPhotoRoutes);
+app.use('/api/hr', hrRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -122,4 +119,3 @@ app.listen(port, () => {
     console.log(`KEMRI CRUD API listening at http://localhost:${port}`);
     console.log(`CORS enabled for specific origins during development.`);
 });
-
