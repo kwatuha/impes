@@ -67,33 +67,59 @@ router.delete('/employees/:id', auth, privilege(['employee.delete']), async (req
 router.get('/employees/:id/360', auth, privilege(['employee.read_all', 'employee.read_360']), async (req, res) => {
     const { id } = req.params;
     try {
-        // Fetch primary employee details
-        const [employee] = await pool.query('SELECT * FROM kemri_staff WHERE staffId = ? AND voided = 0', [id]);
-        if (employee.length === 0) {
+        // 1. Fetch the primary employee profile first to ensure they exist
+        const [employeeRows] = await pool.query('SELECT * FROM kemri_staff WHERE staffId = ? AND voided = 0', [id]);
+        if (employeeRows.length === 0) {
             return res.status(404).json({ message: 'Employee not found.' });
         }
+        const profile = employeeRows[0];
 
-        // Fetch related performance reviews, including reviewer's name
-        const sqlPerformance = `
-            SELECT
-                ep.id,
-                ep.reviewDate,
-                ep.reviewScore,
-                ep.comments,
-                ep.reviewerId,
-                s.firstName AS reviewerFirstName,
-                s.lastName AS reviewerLastName
-            FROM kemri_employee_performance ep
-            LEFT JOIN kemri_staff s ON ep.reviewerId = s.staffId
-            WHERE ep.staffId = ? AND ep.voided = 0
-            ORDER BY ep.reviewDate DESC
-        `;
-        const [performance] = await pool.query(sqlPerformance, [id]);
-        
+        // 2. Create an array of promises to fetch all related data in parallel
+        const dataPromises = [
+            pool.query('SELECT * FROM kemri_employee_performance WHERE staffId = ? AND voided = 0 ORDER BY reviewDate DESC', [id]),
+            pool.query('SELECT * FROM kemri_employee_compensation WHERE staffId = ? AND voided = 0', [id]),
+            pool.query('SELECT * FROM kemri_employee_training WHERE staffId = ? AND voided = 0 ORDER BY completionDate DESC', [id]),
+            pool.query('SELECT * FROM kemri_employee_disciplinary WHERE staffId = ? AND voided = 0 ORDER BY actionDate DESC', [id]),
+            pool.query('SELECT * FROM kemri_employee_contracts WHERE staffId = ? AND voided = 0 ORDER BY contractStartDate DESC', [id]),
+            pool.query('SELECT * FROM kemri_employee_retirements WHERE staffId = ? AND voided = 0', [id]),
+            pool.query('SELECT * FROM kemri_employee_loans WHERE staffId = ? AND voided = 0', [id]),
+            pool.query('SELECT * FROM kemri_monthly_payroll WHERE staffId = ? AND voided = 0 ORDER BY payPeriod DESC', [id]),
+            pool.query('SELECT * FROM kemri_employee_dependants WHERE staffId = ? AND voided = 0', [id]),
+            pool.query('SELECT * FROM kemri_employee_terminations WHERE staffId = ? AND voided = 0', [id]),
+            pool.query('SELECT * FROM kemri_employee_bank_details WHERE staffId = ? AND voided = 0', [id]),
+            pool.query('SELECT * FROM kemri_employee_memberships WHERE staffId = ? AND voided = 0', [id]),
+            pool.query('SELECT * FROM kemri_employee_benefits WHERE staffId = ? AND voided = 0', [id]),
+            pool.query('SELECT * FROM kemri_assigned_assets WHERE staffId = ? AND voided = 0', [id]),
+            pool.query('SELECT * FROM kemri_employee_promotions WHERE staffId = ? AND voided = 0 ORDER BY promotionDate DESC', [id]),
+            // Also fetch all job groups so the frontend can map names from IDs
+            pool.query('SELECT * FROM kemri_job_groups WHERE voided = 0') 
+        ];
+
+        // 3. Execute all promises concurrently
+        const results = await Promise.all(dataPromises);
+
+        // 4. Structure the final response object with all the fetched data
         res.json({
-            profile: employee[0],
-            performanceReviews: performance,
+            profile: profile,
+            performanceReviews: results[0][0],
+            compensations:      results[1][0],
+            trainings:          results[2][0],
+            disciplinaries:     results[3][0],
+            contracts:          results[4][0],
+            retirements:        results[5][0],
+            loans:              results[6][0],
+            payrolls:           results[7][0],
+            dependants:         results[8][0],
+            terminations:       results[9][0],
+            bankDetails:        results[10][0],
+            memberships:        results[11][0],
+            benefits:           results[12][0],
+            assignedAssets:     results[13][0],
+            promotions:         results[14][0],
+            jobGroups:          results[15][0],
+            // Note: projectAssignments was omitted as no corresponding table was found in the routes file.
         });
+
     } catch (err) {
         console.error('Error fetching employee 360 view:', err);
         res.status(500).send('Error fetching employee 360 view');
