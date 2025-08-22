@@ -91,6 +91,7 @@ router.get('/employees/:id/360', auth, privilege(['employee.read_all', 'employee
             pool.query('SELECT * FROM kemri_assigned_assets WHERE staffId = ? AND voided = 0', [id]),
             pool.query('SELECT * FROM kemri_employee_promotions WHERE staffId = ? AND voided = 0 ORDER BY promotionDate DESC', [id]),
             pool.query('SELECT * FROM kemri_employee_project_assignments WHERE staffId = ? AND voided = 0', [id]),
+            pool.query('SELECT la.*, lt.name as leaveTypeName FROM kemri_leave_applications la JOIN kemri_leave_types lt ON la.leaveTypeId = lt.id WHERE la.staffId = ? AND la.voided = 0 ORDER BY la.startDate DESC', [id]),
             pool.query('SELECT * FROM kemri_job_groups WHERE voided = 0')
         ];
 
@@ -114,7 +115,8 @@ router.get('/employees/:id/360', auth, privilege(['employee.read_all', 'employee
             assignedAssets:     results[13][0],
             promotions:         results[14][0],
             projectAssignments: results[15][0],
-            jobGroups:          results[16][0],
+            leaveApplications:  results[16][0],
+            jobGroups:          results[17][0],
         });
 
     } catch (err) {
@@ -218,6 +220,7 @@ router.delete('/leave-types/:id', auth, privilege(['leave.type.delete']), async 
         res.status(500).send('Error deleting leave type');
     }
 });
+
 
 // --- Leave Application Management ---
 router.get('/leave-applications', auth, privilege(['leave.read_all']), async (req, res) => {
@@ -1023,6 +1026,196 @@ router.delete('/project-assignments/:id', auth, privilege(['project.assignments.
     } catch (err) {
         console.error('Error deleting project assignment:', err);
         res.status(500).send('Error deleting project assignment');
+    }
+});
+
+// NEW: --- Leave Entitlements ---
+router.get('/employees/:id/leave-entitlements', auth, privilege(['leave.entitlement.read']), async (req, res) => {
+    const { id } = req.params;
+    try {
+        const sql = `
+            SELECT le.*, lt.name as leaveTypeName 
+            FROM kemri_employee_leave_entitlements le
+            JOIN kemri_leave_types lt ON le.leaveTypeId = lt.id
+            WHERE le.staffId = ? AND le.voided = 0
+            ORDER BY le.year DESC, lt.name ASC
+        `;
+        const [entitlements] = await pool.query(sql, [id]);
+        res.json(entitlements);
+    } catch (err) {
+        console.error('Error fetching leave entitlements:', err);
+        res.status(500).send('Error fetching leave entitlements');
+    }
+});
+
+router.post('/leave-entitlements', auth, privilege(['leave.entitlement.create']), async (req, res) => {
+    const { staffId, leaveTypeId, year, allocatedDays, userId } = req.body;
+    try {
+        const sql = 'INSERT INTO kemri_employee_leave_entitlements (staffId, leaveTypeId, year, allocatedDays, userId) VALUES (?, ?, ?, ?, ?)';
+        const [result] = await pool.query(sql, [staffId, leaveTypeId, year, allocatedDays, userId]);
+        res.status(201).json({ id: result.insertId, message: 'Leave entitlement added successfully' });
+    } catch (err) {
+        console.error('Error adding leave entitlement:', err);
+        res.status(500).send('Error adding leave entitlement');
+    }
+});
+
+router.put('/leave-entitlements/:id', auth, privilege(['leave.entitlement.update']), async (req, res) => {
+    const { id } = req.params;
+    const { staffId, leaveTypeId, year, allocatedDays, userId } = req.body;
+    try {
+        const sql = 'UPDATE kemri_employee_leave_entitlements SET staffId = ?, leaveTypeId = ?, year = ?, allocatedDays = ?, userId = ? WHERE id = ?';
+        const [result] = await pool.query(sql, [staffId, leaveTypeId, year, allocatedDays, userId, id]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Leave entitlement not found.' });
+        }
+        res.status(200).json({ message: 'Leave entitlement updated successfully' });
+    } catch (err) {
+        console.error('Error updating leave entitlement:', err);
+        res.status(500).send('Error updating leave entitlement');
+    }
+});
+
+router.delete('/leave-entitlements/:id', auth, privilege(['leave.entitlement.delete']), async (req, res) => {
+    const { id } = req.params;
+    try {
+        const sql = 'UPDATE kemri_employee_leave_entitlements SET voided = 1 WHERE id = ?';
+        const [result] = await pool.query(sql, [id]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Leave entitlement not found.' });
+        }
+        res.status(200).json({ message: 'Leave entitlement deleted successfully' });
+    } catch (err) {
+        console.error('Error deleting leave entitlement:', err);
+        res.status(500).send('Error deleting leave entitlement');
+    }
+});
+
+// NEW: Route to fetch calculated leave balances for an employee
+router.get('/employees/:id/leave-balance', auth, async (req, res) => {
+    const { id } = req.params;
+    const year = req.query.year || new Date().getFullYear(); // Default to current year
+
+    try {
+        const sql = `
+            SELECT 
+                lt.id AS leaveTypeId,
+                lt.name AS leaveTypeName,
+                COALESCE(le.allocatedDays, 0) AS allocated,
+                COALESCE(SUM(la.numberOfDays), 0) AS taken,
+                (COALESCE(le.allocatedDays, 0) - COALESCE(SUM(la.numberOfDays), 0)) AS balance
+            FROM 
+                kemri_leave_types lt
+            LEFT JOIN 
+                kemri_employee_leave_entitlements le ON lt.id = le.leaveTypeId 
+                AND le.staffId = ? 
+                AND le.year = ?
+            LEFT JOIN 
+                kemri_leave_applications la ON lt.id = la.leaveTypeId 
+                AND la.staffId = ? 
+                AND YEAR(la.startDate) = ? 
+                AND la.status IN ('Approved', 'Completed')
+            WHERE 
+                lt.voided = 0
+            GROUP BY 
+                lt.id, lt.name, le.allocatedDays;
+        `;
+        const [balances] = await pool.query(sql, [id, year, id, year]);
+        res.json(balances);
+    } catch (err) {
+        console.error('Error fetching leave balance:', err);
+        res.status(500).send('Error fetching leave balance');
+    }
+});
+
+// In humanResourceRoutes.js
+
+// NEW: Route to calculate working days excluding weekends and public holidays
+router.get('/calculate-working-days', auth, async (req, res) => {
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+        return res.status(400).send('startDate and endDate are required.');
+    }
+
+    try {
+        const [holidays] = await pool.query(
+            'SELECT holidayDate FROM kemri_public_holidays WHERE holidayDate BETWEEN ? AND ?',
+            [startDate, endDate]
+        );
+        const holidaySet = new Set(holidays.map(h => new Date(h.holidayDate).toISOString().slice(0, 10)));
+
+        let workingDays = 0;
+        let currentDate = new Date(startDate);
+        const finalDate = new Date(endDate);
+
+        while (currentDate <= finalDate) {
+            const dayOfWeek = currentDate.getDay(); // 0 = Sunday, 6 = Saturday
+            const dateString = currentDate.toISOString().slice(0, 10);
+
+            if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidaySet.has(dateString)) {
+                workingDays++;
+            }
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+        res.json({ workingDays });
+    } catch (err) {
+        console.error('Error calculating working days:', err);
+        res.status(500).send('Error calculating working days');
+    }
+});
+
+// --- Public Holidays Management ---
+router.get('/public-holidays', auth, privilege(['holiday.read']), async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM kemri_public_holidays WHERE voided = 0 ORDER BY holidayDate DESC');
+        res.json(rows);
+    } catch (err) {
+        console.error('Error fetching public holidays:', err);
+        res.status(500).send('Error fetching public holidays');
+    }
+});
+
+router.post('/public-holidays', auth, privilege(['holiday.create']), async (req, res) => {
+    const { holidayName, holidayDate, userId } = req.body;
+    try {
+        const sql = 'INSERT INTO kemri_public_holidays (holidayName, holidayDate, userId) VALUES (?, ?, ?)';
+        const [result] = await pool.query(sql, [holidayName, formatDate(holidayDate), userId]);
+        res.status(201).json({ id: result.insertId, message: 'Public holiday added successfully' });
+    } catch (err) {
+        console.error('Error adding public holiday:', err);
+        res.status(500).send('Error adding public holiday');
+    }
+});
+
+router.put('/public-holidays/:id', auth, privilege(['holiday.update']), async (req, res) => {
+    const { id } = req.params;
+    const { holidayName, holidayDate, userId } = req.body;
+    try {
+        const sql = 'UPDATE kemri_public_holidays SET holidayName = ?, holidayDate = ?, userId = ? WHERE id = ?';
+        const [result] = await pool.query(sql, [holidayName, formatDate(holidayDate), userId, id]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Public holiday not found.' });
+        }
+        res.status(200).json({ message: 'Public holiday updated successfully' });
+    } catch (err) {
+        console.error('Error updating public holiday:', err);
+        res.status(500).send('Error updating public holiday');
+    }
+});
+
+router.delete('/public-holidays/:id', auth, privilege(['holiday.delete']), async (req, res) => {
+    const { id } = req.params;
+    try {
+        const sql = 'UPDATE kemri_public_holidays SET voided = 1 WHERE id = ?';
+        const [result] = await pool.query(sql, [id]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Public holiday not found.' });
+        }
+        res.status(200).json({ message: 'Public holiday deleted successfully' });
+    } catch (err) {
+        console.error('Error deleting public holiday:', err);
+        res.status(500).send('Error deleting public holiday');
     }
 });
 
