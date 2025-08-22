@@ -1,13 +1,14 @@
-// routes/humanResourceRoutes.js
 const express = require('express');
 const router = express.Router();
-const pool = require('../config/db'); // Assuming db.js exports a connection pool
+const pool = require('../config/db');
 const auth = require('../middleware/authenticate');
 const privilege = require('../middleware/privilegeMiddleware');
 
-//
-// HR Module API Routes
-//
+// Helper function to format dates for MySQL (YYYY-MM-DD)
+const formatDate = (dateString) => {
+  if (!dateString) return null;
+  return new Date(dateString).toISOString().slice(0, 10);
+};
 
 // --- Employee Management ---
 router.get('/employees', auth, privilege(['employee.read_all']), async (req, res) => {
@@ -24,7 +25,7 @@ router.post('/employees', auth, privilege(['employee.create']), async (req, res)
     const { firstName, lastName, email, phoneNumber, departmentId, title, userId, gender, dateOfBirth, employmentStatus, startDate, emergencyContactName, emergencyContactPhone, nationality, maritalStatus, employmentType, managerId, role } = req.body;
     const sql = 'INSERT INTO kemri_staff (firstName, lastName, email, phoneNumber, departmentId, title, userId, gender, dateOfBirth, employmentStatus, startDate, emergencyContactName, emergencyContactPhone, nationality, maritalStatus, employmentType, managerId, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
     try {
-        const [result] = await pool.query(sql, [firstName, lastName, email, phoneNumber, departmentId, title, userId, gender, dateOfBirth, employmentStatus, startDate, emergencyContactName, emergencyContactPhone, nationality, maritalStatus, employmentType, managerId, role]);
+        const [result] = await pool.query(sql, [firstName, lastName, email, phoneNumber, departmentId, title, userId, gender, formatDate(dateOfBirth), employmentStatus, formatDate(startDate), emergencyContactName, emergencyContactPhone, nationality, maritalStatus, employmentType, managerId, role]);
         res.status(201).json({ staffId: result.insertId, message: 'Employee added successfully' });
     } catch (err) {
         console.error('Error adding employee:', err);
@@ -37,7 +38,7 @@ router.put('/employees/:id', auth, privilege(['employee.update']), async (req, r
     const { firstName, lastName, email, phoneNumber, departmentId, title, userId, gender, dateOfBirth, employmentStatus, startDate, emergencyContactName, emergencyContactPhone, nationality, maritalStatus, employmentType, managerId, role } = req.body;
     const sql = 'UPDATE kemri_staff SET firstName = ?, lastName = ?, email = ?, phoneNumber = ?, departmentId = ?, title = ?, userId = ?, gender = ?, dateOfBirth = ?, employmentStatus = ?, startDate = ?, emergencyContactName = ?, emergencyContactPhone = ?, nationality = ?, maritalStatus = ?, employmentType = ?, managerId = ?, role = ?, updatedAt = CURRENT_TIMESTAMP WHERE staffId = ?';
     try {
-        const [result] = await pool.query(sql, [firstName, lastName, email, phoneNumber, departmentId, title, userId, gender, dateOfBirth, employmentStatus, startDate, emergencyContactName, emergencyContactPhone, nationality, maritalStatus, employmentType, managerId, role, id]);
+        const [result] = await pool.query(sql, [firstName, lastName, email, phoneNumber, departmentId, title, userId, gender, formatDate(dateOfBirth), employmentStatus, formatDate(startDate), emergencyContactName, emergencyContactPhone, nationality, maritalStatus, employmentType, managerId, role, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Employee not found.' });
         }
@@ -126,7 +127,7 @@ router.get('/employees/:id/360', auth, privilege(['employee.read_all', 'employee
 router.post('/employees/performance', auth, privilege(['employee.performance.create']), async (req, res) => {
     const { staffId, reviewDate, reviewScore, comments, reviewerId } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO kemri_employee_performance (staffId, reviewDate, reviewScore, comments, reviewerId) VALUES (?, ?, ?, ?, ?)', [staffId, reviewDate, reviewScore, comments, reviewerId]);
+        const [result] = await pool.query('INSERT INTO kemri_employee_performance (staffId, reviewDate, reviewScore, comments, reviewerId) VALUES (?, ?, ?, ?, ?)', [staffId, formatDate(reviewDate), reviewScore, comments, reviewerId]);
         res.status(201).json({ id: result.insertId, message: 'Performance review added successfully' });
     } catch (err) {
         console.error('Error adding performance review:', err);
@@ -139,7 +140,7 @@ router.put('/employees/performance/:id', auth, privilege(['employee.performance.
     const { reviewDate, reviewScore, comments, reviewerId } = req.body;
     const sql = 'UPDATE kemri_employee_performance SET reviewDate = ?, reviewScore = ?, comments = ?, reviewerId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
     try {
-        const [result] = await pool.query(sql, [reviewDate, reviewScore, comments, reviewerId, id]);
+        const [result] = await pool.query(sql, [formatDate(reviewDate), reviewScore, comments, reviewerId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Performance review not found.' });
         }
@@ -218,7 +219,6 @@ router.delete('/leave-types/:id', auth, privilege(['leave.type.delete']), async 
     }
 });
 
-
 // --- Leave Application Management ---
 router.get('/leave-applications', auth, privilege(['leave.read_all']), async (req, res) => {
     const sql = `
@@ -239,7 +239,7 @@ router.post('/leave-applications', auth, privilege(['leave.apply']), async (req,
     const { staffId, leaveTypeId, startDate, endDate, numberOfDays, reason, handoverStaffId, handoverComments, userId } = req.body;
     const sql = 'INSERT INTO kemri_leave_applications (staffId, leaveTypeId, startDate, endDate, numberOfDays, reason, handoverStaffId, handoverComments, userId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
     try {
-        const [result] = await pool.query(sql, [staffId, leaveTypeId, startDate, endDate, numberOfDays, reason, handoverStaffId, handoverComments, userId]);
+        const [result] = await pool.query(sql, [staffId, leaveTypeId, formatDate(startDate), formatDate(endDate), numberOfDays, reason, handoverStaffId, handoverComments, userId]);
         res.status(201).json({ id: result.insertId, message: 'Leave application submitted' });
     } catch (err) {
         console.error('Error submitting leave application:', err);
@@ -254,7 +254,7 @@ router.put('/leave-applications/:id', auth, privilege(['leave.approve']), async 
     let sql, params;
     if (status === 'Approved') {
         sql = 'UPDATE kemri_leave_applications SET status = ?, approvedStartDate = ?, approvedEndDate = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
-        params = [status, approvedStartDate, approvedEndDate, userId, id];
+        params = [status, formatDate(approvedStartDate), formatDate(approvedEndDate), userId, id];
     } else {
         sql = 'UPDATE kemri_leave_applications SET status = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
         params = [status, userId, id];
@@ -274,7 +274,7 @@ router.put('/leave-applications/:id/edit', auth, privilege(['leave.update']), as
     const { id } = req.params;
     const sql = 'UPDATE kemri_leave_applications SET staffId = ?, leaveTypeId = ?, startDate = ?, endDate = ?, numberOfDays = ?, reason = ?, handoverStaffId = ?, handoverComments = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
     try {
-        const [result] = await pool.query(sql, [staffId, leaveTypeId, startDate, endDate, numberOfDays, reason, handoverStaffId, handoverComments, userId, id]);
+        const [result] = await pool.query(sql, [staffId, leaveTypeId, formatDate(startDate), formatDate(endDate), numberOfDays, reason, handoverStaffId, handoverComments, userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Leave application not found.' });
         }
@@ -290,7 +290,7 @@ router.put('/leave-applications/:id/return', auth, privilege(['leave.complete'])
     const { id } = req.params;
     const sql = 'UPDATE kemri_leave_applications SET actualReturnDate = ?, status = "Completed", userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
     try {
-        await pool.query(sql, [actualReturnDate, userId, id]);
+        await pool.query(sql, [formatDate(actualReturnDate), userId, id]);
         res.status(200).json({ message: 'Actual return date recorded successfully' });
     } catch (err) {
         console.error('Error recording actual return date:', err);
@@ -400,7 +400,7 @@ router.delete('/employee-compensation/:id', auth, privilege(['compensation.delet
 router.post('/employee-training', auth, privilege(['training.create']), async (req, res) => {
     const { staffId, courseName, institution, certificationName, completionDate, expiryDate, userId } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO kemri_employee_training (staffId, courseName, institution, certificationName, completionDate, expiryDate, userId) VALUES (?, ?, ?, ?, ?, ?, ?)', [staffId, courseName, institution, certificationName, completionDate, expiryDate, userId]);
+        const [result] = await pool.query('INSERT INTO kemri_employee_training (staffId, courseName, institution, certificationName, completionDate, expiryDate, userId) VALUES (?, ?, ?, ?, ?, ?, ?)', [staffId, courseName, institution, certificationName, formatDate(completionDate), formatDate(expiryDate), userId]);
         res.status(201).json({ id: result.insertId, message: 'Training record added successfully' });
     } catch (err) {
         console.error('Error adding training record:', err);
@@ -412,7 +412,7 @@ router.put('/employee-training/:id', auth, privilege(['training.update']), async
     const { id } = req.params;
     const { staffId, courseName, institution, certificationName, completionDate, expiryDate, userId } = req.body;
     try {
-        const [result] = await pool.query('UPDATE kemri_employee_training SET staffId = ?, courseName = ?, institution = ?, certificationName = ?, completionDate = ?, expiryDate = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, courseName, institution, certificationName, completionDate, expiryDate, userId, id]);
+        const [result] = await pool.query('UPDATE kemri_employee_training SET staffId = ?, courseName = ?, institution = ?, certificationName = ?, completionDate = ?, expiryDate = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, courseName, institution, certificationName, formatDate(completionDate), formatDate(expiryDate), userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Training record not found.' });
         }
@@ -492,7 +492,7 @@ router.delete('/job-groups/:id', auth, privilege(['job_group.delete']), async (r
 router.post('/employee-promotions', auth, privilege(['promotion.create']), async (req, res) => {
     const { staffId, oldJobGroupId, newJobGroupId, promotionDate, comments, userId } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO kemri_employee_promotions (staffId, oldJobGroupId, newJobGroupId, promotionDate, comments, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, oldJobGroupId, newJobGroupId, promotionDate, comments, userId]);
+        const [result] = await pool.query('INSERT INTO kemri_employee_promotions (staffId, oldJobGroupId, newJobGroupId, promotionDate, comments, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, oldJobGroupId, newJobGroupId, formatDate(promotionDate), comments, userId]);
         res.status(201).json({ id: result.insertId, message: 'Promotion record added successfully' });
     } catch (err) {
         console.error('Error adding promotion record:', err);
@@ -504,7 +504,7 @@ router.put('/employee-promotions/:id', auth, privilege(['promotion.update']), as
     const { id } = req.params;
     const { staffId, oldJobGroupId, newJobGroupId, promotionDate, comments, userId } = req.body;
     try {
-        const [result] = await pool.query('UPDATE kemri_employee_promotions SET staffId = ?, oldJobGroupId = ?, newJobGroupId = ?, promotionDate = ?, comments = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, oldJobGroupId, newJobGroupId, promotionDate, comments, userId, id]);
+        const [result] = await pool.query('UPDATE kemri_employee_promotions SET staffId = ?, oldJobGroupId = ?, newJobGroupId = ?, promotionDate = ?, comments = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, oldJobGroupId, newJobGroupId, formatDate(promotionDate), comments, userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Promotion record not found.' });
         }
@@ -533,7 +533,7 @@ router.delete('/employee-promotions/:id', auth, privilege(['promotion.delete']),
 router.post('/employee-disciplinary', auth, privilege(['disciplinary.create']), async (req, res) => {
     const { staffId, actionType, actionDate, reason, comments, userId } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO kemri_employee_disciplinary (staffId, actionType, actionDate, reason, comments, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, actionType, actionDate, reason, comments, userId]);
+        const [result] = await pool.query('INSERT INTO kemri_employee_disciplinary (staffId, actionType, actionDate, reason, comments, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, actionType, formatDate(actionDate), reason, comments, userId]);
         res.status(201).json({ id: result.insertId, message: 'Disciplinary action added successfully' });
     } catch (err) {
         console.error('Error adding disciplinary action:', err);
@@ -545,7 +545,7 @@ router.put('/employee-disciplinary/:id', auth, privilege(['disciplinary.update']
     const { id } = req.params;
     const { staffId, actionType, actionDate, reason, comments, userId } = req.body;
     try {
-        const [result] = await pool.query('UPDATE kemri_employee_disciplinary SET staffId = ?, actionType = ?, actionDate = ?, reason = ?, comments = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, actionType, actionDate, reason, comments, userId, id]);
+        const [result] = await pool.query('UPDATE kemri_employee_disciplinary SET staffId = ?, actionType = ?, actionDate = ?, reason = ?, comments = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, actionType, formatDate(actionDate), reason, comments, userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Disciplinary record not found.' });
         }
@@ -574,7 +574,7 @@ router.delete('/employee-disciplinary/:id', auth, privilege(['disciplinary.delet
 router.post('/employee-contracts', auth, privilege(['contracts.create']), async (req, res) => {
     const { staffId, contractType, contractStartDate, contractEndDate, status, userId } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO kemri_employee_contracts (staffId, contractType, contractStartDate, contractEndDate, status, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, contractType, contractStartDate, contractEndDate, status, userId]);
+        const [result] = await pool.query('INSERT INTO kemri_employee_contracts (staffId, contractType, contractStartDate, contractEndDate, status, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, contractType, formatDate(contractStartDate), formatDate(contractEndDate), status, userId]);
         res.status(201).json({ id: result.insertId, message: 'Contract added successfully' });
     } catch (err) {
         console.error('Error adding contract:', err);
@@ -586,7 +586,7 @@ router.put('/employee-contracts/:id', auth, privilege(['contracts.update']), asy
     const { id } = req.params;
     const { staffId, contractType, contractStartDate, contractEndDate, status, userId } = req.body;
     try {
-        const [result] = await pool.query('UPDATE kemri_employee_contracts SET staffId = ?, contractType = ?, contractStartDate = ?, contractEndDate = ?, status = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, contractType, contractStartDate, contractEndDate, status, userId, id]);
+        const [result] = await pool.query('UPDATE kemri_employee_contracts SET staffId = ?, contractType = ?, contractStartDate = ?, contractEndDate = ?, status = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, contractType, formatDate(contractStartDate), formatDate(contractEndDate), status, userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Contract not found.' });
         }
@@ -615,7 +615,7 @@ router.delete('/employee-contracts/:id', auth, privilege(['contracts.delete']), 
 router.post('/employee-retirements', auth, privilege(['retirements.create']), async (req, res) => {
     const { staffId, retirementDate, retirementType, comments, userId } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO kemri_employee_retirements (staffId, retirementDate, retirementType, comments, userId) VALUES (?, ?, ?, ?, ?)', [staffId, retirementDate, retirementType, comments, userId]);
+        const [result] = await pool.query('INSERT INTO kemri_employee_retirements (staffId, retirementDate, retirementType, comments, userId) VALUES (?, ?, ?, ?, ?)', [staffId, formatDate(retirementDate), retirementType, comments, userId]);
         res.status(201).json({ id: result.insertId, message: 'Retirement record added successfully' });
     } catch (err) {
         console.error('Error adding retirement record:', err);
@@ -627,7 +627,7 @@ router.put('/employee-retirements/:id', auth, privilege(['retirements.update']),
     const { id } = req.params;
     const { staffId, retirementDate, retirementType, comments, userId } = req.body;
     try {
-        const [result] = await pool.query('UPDATE kemri_employee_retirements SET staffId = ?, retirementDate = ?, retirementType = ?, comments = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, retirementDate, retirementType, comments, userId, id]);
+        const [result] = await pool.query('UPDATE kemri_employee_retirements SET staffId = ?, retirementDate = ?, retirementType = ?, comments = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, formatDate(retirementDate), retirementType, comments, userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Retirement record not found.' });
         }
@@ -656,7 +656,7 @@ router.delete('/employee-retirements/:id', auth, privilege(['retirements.delete'
 router.post('/employee-loans', auth, privilege(['loans.create']), async (req, res) => {
     const { staffId, loanAmount, loanDate, status, repaymentSchedule, userId } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO kemri_employee_loans (staffId, loanAmount, loanDate, status, repaymentSchedule, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, loanAmount, loanDate, status, repaymentSchedule, userId]);
+        const [result] = await pool.query('INSERT INTO kemri_employee_loans (staffId, loanAmount, loanDate, status, repaymentSchedule, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, loanAmount, formatDate(loanDate), status, repaymentSchedule, userId]);
         res.status(201).json({ id: result.insertId, message: 'Loan record added successfully' });
     } catch (err) {
         console.error('Error adding loan record:', err);
@@ -668,7 +668,7 @@ router.put('/employee-loans/:id', auth, privilege(['loans.update']), async (req,
     const { id } = req.params;
     const { staffId, loanAmount, loanDate, status, repaymentSchedule, userId } = req.body;
     try {
-        const [result] = await pool.query('UPDATE kemri_employee_loans SET staffId = ?, loanAmount = ?, loanDate = ?, status = ?, repaymentSchedule = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, loanAmount, loanDate, status, repaymentSchedule, userId, id]);
+        const [result] = await pool.query('UPDATE kemri_employee_loans SET staffId = ?, loanAmount = ?, loanDate = ?, status = ?, repaymentSchedule = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, loanAmount, formatDate(loanDate), status, repaymentSchedule, userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Loan record not found.' });
         }
@@ -697,7 +697,7 @@ router.delete('/employee-loans/:id', auth, privilege(['loans.delete']), async (r
 router.post('/monthly-payroll', auth, privilege(['payroll.create']), async (req, res) => {
     const { staffId, payPeriod, grossSalary, netSalary, allowances, deductions, userId } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO kemri_monthly_payroll (staffId, payPeriod, grossSalary, netSalary, allowances, deductions, userId) VALUES (?, ?, ?, ?, ?, ?, ?)', [staffId, payPeriod, grossSalary, netSalary, allowances, deductions, userId]);
+        const [result] = await pool.query('INSERT INTO kemri_monthly_payroll (staffId, payPeriod, grossSalary, netSalary, allowances, deductions, userId) VALUES (?, ?, ?, ?, ?, ?, ?)', [staffId, formatDate(payPeriod), grossSalary, netSalary, allowances, deductions, userId]);
         res.status(201).json({ id: result.insertId, message: 'Payroll record added successfully' });
     } catch (err) {
         console.error('Error adding payroll record:', err);
@@ -709,7 +709,7 @@ router.put('/monthly-payroll/:id', auth, privilege(['payroll.update']), async (r
     const { id } = req.params;
     const { staffId, payPeriod, grossSalary, netSalary, allowances, deductions, userId } = req.body;
     try {
-        const [result] = await pool.query('UPDATE kemri_monthly_payroll SET staffId = ?, payPeriod = ?, grossSalary = ?, netSalary = ?, allowances = ?, deductions = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, payPeriod, grossSalary, netSalary, allowances, deductions, userId, id]);
+        const [result] = await pool.query('UPDATE kemri_monthly_payroll SET staffId = ?, payPeriod = ?, grossSalary = ?, netSalary = ?, allowances = ?, deductions = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, formatDate(payPeriod), grossSalary, netSalary, allowances, deductions, userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Payroll record not found.' });
         }
@@ -738,7 +738,7 @@ router.delete('/monthly-payroll/:id', auth, privilege(['payroll.delete']), async
 router.post('/employee-dependants', auth, privilege(['dependants.create']), async (req, res) => {
     const { staffId, dependantName, relationship, dateOfBirth, userId } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO kemri_employee_dependants (staffId, dependantName, relationship, dateOfBirth, userId) VALUES (?, ?, ?, ?, ?)', [staffId, dependantName, relationship, dateOfBirth, userId]);
+        const [result] = await pool.query('INSERT INTO kemri_employee_dependants (staffId, dependantName, relationship, dateOfBirth, userId) VALUES (?, ?, ?, ?, ?)', [staffId, dependantName, relationship, formatDate(dateOfBirth), userId]);
         res.status(201).json({ id: result.insertId, message: 'Dependant record added successfully' });
     } catch (err) {
         console.error('Error adding dependant record:', err);
@@ -750,7 +750,7 @@ router.put('/employee-dependants/:id', auth, privilege(['dependants.update']), a
     const { id } = req.params;
     const { staffId, dependantName, relationship, dateOfBirth, userId } = req.body;
     try {
-        const [result] = await pool.query('UPDATE kemri_employee_dependants SET staffId = ?, dependantName = ?, relationship = ?, dateOfBirth = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, dependantName, relationship, dateOfBirth, userId, id]);
+        const [result] = await pool.query('UPDATE kemri_employee_dependants SET staffId = ?, dependantName = ?, relationship = ?, dateOfBirth = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, dependantName, relationship, formatDate(dateOfBirth), userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Dependant record not found.' });
         }
@@ -779,7 +779,7 @@ router.delete('/employee-dependants/:id', auth, privilege(['dependants.delete'])
 router.post('/employee-terminations', auth, privilege(['terminations.create']), async (req, res) => {
     const { staffId, exitDate, reason, exitInterviewDetails, userId } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO kemri_employee_terminations (staffId, exitDate, reason, exitInterviewDetails, userId) VALUES (?, ?, ?, ?, ?)', [staffId, exitDate, reason, exitInterviewDetails, userId]);
+        const [result] = await pool.query('INSERT INTO kemri_employee_terminations (staffId, exitDate, reason, exitInterviewDetails, userId) VALUES (?, ?, ?, ?, ?)', [staffId, formatDate(exitDate), reason, exitInterviewDetails, userId]);
         res.status(201).json({ id: result.insertId, message: 'Termination record added successfully' });
     } catch (err) {
         console.error('Error adding termination record:', err);
@@ -791,7 +791,7 @@ router.put('/employee-terminations/:id', auth, privilege(['terminations.update']
     const { id } = req.params;
     const { staffId, exitDate, reason, exitInterviewDetails, userId } = req.body;
     try {
-        const [result] = await pool.query('UPDATE kemri_employee_terminations SET staffId = ?, exitDate = ?, reason = ?, exitInterviewDetails = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, exitDate, reason, exitInterviewDetails, userId, id]);
+        const [result] = await pool.query('UPDATE kemri_employee_terminations SET staffId = ?, exitDate = ?, reason = ?, exitInterviewDetails = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, formatDate(exitDate), reason, exitInterviewDetails, userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Termination record not found.' });
         }
@@ -861,7 +861,7 @@ router.delete('/employee-bank-details/:id', auth, privilege(['bank_details.delet
 router.post('/employee-memberships', auth, privilege(['memberships.create']), async (req, res) => {
     const { staffId, organizationName, membershipNumber, startDate, endDate, userId } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO kemri_employee_memberships (staffId, organizationName, membershipNumber, startDate, endDate, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, organizationName, membershipNumber, startDate, endDate, userId]);
+        const [result] = await pool.query('INSERT INTO kemri_employee_memberships (staffId, organizationName, membershipNumber, startDate, endDate, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, organizationName, membershipNumber, formatDate(startDate), formatDate(endDate), userId]);
         res.status(201).json({ id: result.insertId, message: 'Membership record added successfully' });
     } catch (err) {
         console.error('Error adding membership record:', err);
@@ -873,7 +873,7 @@ router.put('/employee-memberships/:id', auth, privilege(['memberships.update']),
     const { id } = req.params;
     const { staffId, organizationName, membershipNumber, startDate, endDate, userId } = req.body;
     try {
-        const [result] = await pool.query('UPDATE kemri_employee_memberships SET staffId = ?, organizationName = ?, membershipNumber = ?, startDate = ?, endDate = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, organizationName, membershipNumber, startDate, endDate, userId, id]);
+        const [result] = await pool.query('UPDATE kemri_employee_memberships SET staffId = ?, organizationName = ?, membershipNumber = ?, startDate = ?, endDate = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, organizationName, membershipNumber, formatDate(startDate), formatDate(endDate), userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Membership record not found.' });
         }
@@ -902,7 +902,7 @@ router.delete('/employee-memberships/:id', auth, privilege(['memberships.delete'
 router.post('/employee-benefits', auth, privilege(['benefits.create']), async (req, res) => {
     const { staffId, benefitName, enrollmentDate, status, userId } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO kemri_employee_benefits (staffId, benefitName, enrollmentDate, status, userId) VALUES (?, ?, ?, ?, ?)', [staffId, benefitName, enrollmentDate, status, userId]);
+        const [result] = await pool.query('INSERT INTO kemri_employee_benefits (staffId, benefitName, enrollmentDate, status, userId) VALUES (?, ?, ?, ?, ?)', [staffId, benefitName, formatDate(enrollmentDate), status, userId]);
         res.status(201).json({ id: result.insertId, message: 'Benefit record added successfully' });
     } catch (err) {
         console.error('Error adding benefit record:', err);
@@ -914,7 +914,7 @@ router.put('/employee-benefits/:id', auth, privilege(['benefits.update']), async
     const { id } = req.params;
     const { staffId, benefitName, enrollmentDate, status, userId } = req.body;
     try {
-        const [result] = await pool.query('UPDATE kemri_employee_benefits SET staffId = ?, benefitName = ?, enrollmentDate = ?, status = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, benefitName, enrollmentDate, status, userId, id]);
+        const [result] = await pool.query('UPDATE kemri_employee_benefits SET staffId = ?, benefitName = ?, enrollmentDate = ?, status = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, benefitName, formatDate(enrollmentDate), status, userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Benefit record not found.' });
         }
@@ -944,7 +944,7 @@ router.post('/assigned-assets', auth, privilege(['assets.create']), async (req, 
     const { staffId, assetName, serialNumber, assignmentDate, returnDate, condition, userId } = req.body;
     try {
         const sql = 'INSERT INTO kemri_assigned_assets (staffId, assetName, serialNumber, assignmentDate, returnDate, `condition`, userId) VALUES (?, ?, ?, ?, ?, ?, ?)';
-        const [result] = await pool.query(sql, [staffId, assetName, serialNumber, assignmentDate, returnDate, condition, userId]);
+        const [result] = await pool.query(sql, [staffId, assetName, serialNumber, formatDate(assignmentDate), formatDate(returnDate), condition, userId]);
         res.status(201).json({ id: result.insertId, message: 'Asset assignment recorded successfully' });
     } catch (err) {
         console.error('Error adding asset assignment:', err);
@@ -957,7 +957,7 @@ router.put('/assigned-assets/:id', auth, privilege(['assets.update']), async (re
     const { staffId, assetName, serialNumber, assignmentDate, returnDate, condition, userId } = req.body;
     try {
         const sql = 'UPDATE kemri_assigned_assets SET staffId = ?, assetName = ?, serialNumber = ?, assignmentDate = ?, returnDate = ?, `condition` = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
-        const [result] = await pool.query(sql, [staffId, assetName, serialNumber, assignmentDate, returnDate, condition, userId, id]);
+        const [result] = await pool.query(sql, [staffId, assetName, serialNumber, formatDate(assignmentDate), formatDate(returnDate), condition, userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Asset assignment not found.' });
         }
@@ -987,7 +987,7 @@ router.post('/project-assignments', auth, privilege(['project.assignments.create
     const { staffId, projectId, milestoneName, role, status, dueDate, userId } = req.body;
     try {
         const sql = 'INSERT INTO kemri_employee_project_assignments (staffId, projectId, milestoneName, role, status, dueDate, userId) VALUES (?, ?, ?, ?, ?, ?, ?)';
-        const [result] = await pool.query(sql, [staffId, projectId, milestoneName, role, status, dueDate, userId]);
+        const [result] = await pool.query(sql, [staffId, projectId, milestoneName, role, status, formatDate(dueDate), userId]);
         res.status(201).json({ id: result.insertId, message: 'Project assignment added successfully' });
     } catch (err) {
         console.error('Error adding project assignment:', err);
@@ -1000,7 +1000,7 @@ router.put('/project-assignments/:id', auth, privilege(['project.assignments.upd
     const { staffId, projectId, milestoneName, role, status, dueDate, userId } = req.body;
     try {
         const sql = 'UPDATE kemri_employee_project_assignments SET staffId = ?, projectId = ?, milestoneName = ?, role = ?, status = ?, dueDate = ?, userId = ? WHERE id = ?';
-        const [result] = await pool.query(sql, [staffId, projectId, milestoneName, role, status, dueDate, userId, id]);
+        const [result] = await pool.query(sql, [staffId, projectId, milestoneName, role, status, formatDate(dueDate), userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Project assignment not found.' });
         }
@@ -1025,6 +1025,5 @@ router.delete('/project-assignments/:id', auth, privilege(['project.assignments.
         res.status(500).send('Error deleting project assignment');
     }
 });
-
 
 module.exports = router;
