@@ -63,18 +63,16 @@ router.delete('/employees/:id', auth, privilege(['employee.delete']), async (req
     }
 });
 
-// --- Employee 360 View & Performance Management ---
+// --- Employee 360 View ---
 router.get('/employees/:id/360', auth, privilege(['employee.read_all', 'employee.read_360']), async (req, res) => {
     const { id } = req.params;
     try {
-        // 1. Fetch the primary employee profile first to ensure they exist
         const [employeeRows] = await pool.query('SELECT * FROM kemri_staff WHERE staffId = ? AND voided = 0', [id]);
         if (employeeRows.length === 0) {
             return res.status(404).json({ message: 'Employee not found.' });
         }
         const profile = employeeRows[0];
 
-        // 2. Create an array of promises to fetch all related data in parallel
         const dataPromises = [
             pool.query('SELECT * FROM kemri_employee_performance WHERE staffId = ? AND voided = 0 ORDER BY reviewDate DESC', [id]),
             pool.query('SELECT * FROM kemri_employee_compensation WHERE staffId = ? AND voided = 0', [id]),
@@ -91,14 +89,12 @@ router.get('/employees/:id/360', auth, privilege(['employee.read_all', 'employee
             pool.query('SELECT * FROM kemri_employee_benefits WHERE staffId = ? AND voided = 0', [id]),
             pool.query('SELECT * FROM kemri_assigned_assets WHERE staffId = ? AND voided = 0', [id]),
             pool.query('SELECT * FROM kemri_employee_promotions WHERE staffId = ? AND voided = 0 ORDER BY promotionDate DESC', [id]),
-            // Also fetch all job groups so the frontend can map names from IDs
-            pool.query('SELECT * FROM kemri_job_groups WHERE voided = 0') 
+            pool.query('SELECT * FROM kemri_employee_project_assignments WHERE staffId = ? AND voided = 0', [id]),
+            pool.query('SELECT * FROM kemri_job_groups WHERE voided = 0')
         ];
 
-        // 3. Execute all promises concurrently
         const results = await Promise.all(dataPromises);
 
-        // 4. Structure the final response object with all the fetched data
         res.json({
             profile: profile,
             performanceReviews: results[0][0],
@@ -116,8 +112,8 @@ router.get('/employees/:id/360', auth, privilege(['employee.read_all', 'employee
             benefits:           results[12][0],
             assignedAssets:     results[13][0],
             promotions:         results[14][0],
-            jobGroups:          results[15][0],
-            // Note: projectAssignments was omitted as no corresponding table was found in the routes file.
+            projectAssignments: results[15][0],
+            jobGroups:          results[16][0],
         });
 
     } catch (err) {
@@ -126,6 +122,7 @@ router.get('/employees/:id/360', auth, privilege(['employee.read_all', 'employee
     }
 });
 
+// --- Performance Management ---
 router.post('/employees/performance', auth, privilege(['employee.performance.create']), async (req, res) => {
     const { staffId, reviewDate, reviewScore, comments, reviewerId } = req.body;
     try {
@@ -225,31 +222,9 @@ router.delete('/leave-types/:id', auth, privilege(['leave.type.delete']), async 
 // --- Leave Application Management ---
 router.get('/leave-applications', auth, privilege(['leave.read_all']), async (req, res) => {
     const sql = `
-        SELECT
-            la.id,
-            la.staffId,
-            la.leaveTypeId,
-            la.handoverStaffId,
-            la.startDate,
-            la.endDate,
-            la.numberOfDays,
-            la.reason,
-            la.handoverComments,
-            la.status,
-            la.approvedStartDate,
-            la.approvedEndDate,
-            la.actualReturnDate,
-            s.firstName,
-            s.lastName,
-            lt.name AS leaveTypeName,
-            hs.firstName AS handoverFirstName,
-            hs.lastName AS handoverLastName
-        FROM kemri_leave_applications la
-        JOIN kemri_staff s ON la.staffId = s.staffId
-        JOIN kemri_leave_types lt ON la.leaveTypeId = lt.id
-        LEFT JOIN kemri_staff hs ON la.handoverStaffId = hs.staffId
-        WHERE la.voided = 0
-        ORDER BY la.createdAt DESC
+        SELECT la.id, la.staffId, la.leaveTypeId, la.handoverStaffId, la.startDate, la.endDate, la.numberOfDays, la.reason, la.handoverComments, la.status, la.approvedStartDate, la.approvedEndDate, la.actualReturnDate, s.firstName, s.lastName, lt.name AS leaveTypeName, hs.firstName AS handoverFirstName, hs.lastName AS handoverLastName
+        FROM kemri_leave_applications la JOIN kemri_staff s ON la.staffId = s.staffId JOIN kemri_leave_types lt ON la.leaveTypeId = lt.id LEFT JOIN kemri_staff hs ON la.handoverStaffId = hs.staffId
+        WHERE la.voided = 0 ORDER BY la.createdAt DESC
     `;
     try {
         const [rows] = await pool.query(sql);
@@ -342,11 +317,8 @@ router.delete('/leave-applications/:id', auth, privilege(['leave.delete']), asyn
 // --- Attendance Management ---
 router.get('/attendance/today', auth, privilege(['attendance.read_all']), async (req, res) => {
     const sql = `
-        SELECT
-            id, staffId, date, checkInTime, checkOutTime, userId, createdAt, updatedAt
-        FROM kemri_attendance
-        WHERE date = CURDATE() AND voided = 0
-        ORDER BY checkInTime DESC
+        SELECT id, staffId, date, checkInTime, checkOutTime, userId, createdAt, updatedAt FROM kemri_attendance
+        WHERE date = CURDATE() AND voided = 0 ORDER BY checkInTime DESC
     `;
     try {
         const [rows] = await pool.query(sql);
@@ -383,9 +355,7 @@ router.put('/attendance/check-out/:id', auth, privilege(['attendance.create']), 
     }
 });
 
-// --- New Tables CRUD Routes ---
-
-// Employee Compensation
+// --- Employee Compensation ---
 router.post('/employee-compensation', auth, privilege(['compensation.create']), async (req, res) => {
     const { staffId, baseSalary, allowances, bonuses, bankName, accountNumber, payFrequency, userId } = req.body;
     try {
@@ -426,7 +396,7 @@ router.delete('/employee-compensation/:id', auth, privilege(['compensation.delet
     }
 });
 
-// Employee Training
+// --- Employee Training ---
 router.post('/employee-training', auth, privilege(['training.create']), async (req, res) => {
     const { staffId, courseName, institution, certificationName, completionDate, expiryDate, userId } = req.body;
     try {
@@ -467,7 +437,17 @@ router.delete('/employee-training/:id', auth, privilege(['training.delete']), as
     }
 });
 
-// Job Groups
+// --- Job Groups ---
+router.get('/job-groups', auth, privilege(['job_group.read_all']), async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM kemri_job_groups WHERE voided = 0');
+        res.json(rows);
+    } catch (err) {
+        console.error('Error fetching job groups:', err);
+        res.status(500).send('Error fetching job groups');
+    }
+});
+
 router.post('/job-groups', auth, privilege(['job_group.create']), async (req, res) => {
     const { groupName, salaryScale, description, userId } = req.body;
     try {
@@ -508,7 +488,7 @@ router.delete('/job-groups/:id', auth, privilege(['job_group.delete']), async (r
     }
 });
 
-// Employee Promotions
+// --- Employee Promotions ---
 router.post('/employee-promotions', auth, privilege(['promotion.create']), async (req, res) => {
     const { staffId, oldJobGroupId, newJobGroupId, promotionDate, comments, userId } = req.body;
     try {
@@ -549,7 +529,7 @@ router.delete('/employee-promotions/:id', auth, privilege(['promotion.delete']),
     }
 });
 
-// Employee Disciplinary
+// --- Employee Disciplinary ---
 router.post('/employee-disciplinary', auth, privilege(['disciplinary.create']), async (req, res) => {
     const { staffId, actionType, actionDate, reason, comments, userId } = req.body;
     try {
@@ -590,7 +570,7 @@ router.delete('/employee-disciplinary/:id', auth, privilege(['disciplinary.delet
     }
 });
 
-// Employee Contracts
+// --- Employee Contracts ---
 router.post('/employee-contracts', auth, privilege(['contracts.create']), async (req, res) => {
     const { staffId, contractType, contractStartDate, contractEndDate, status, userId } = req.body;
     try {
@@ -631,7 +611,7 @@ router.delete('/employee-contracts/:id', auth, privilege(['contracts.delete']), 
     }
 });
 
-// Employee Retirements
+// --- Employee Retirements ---
 router.post('/employee-retirements', auth, privilege(['retirements.create']), async (req, res) => {
     const { staffId, retirementDate, retirementType, comments, userId } = req.body;
     try {
@@ -672,7 +652,7 @@ router.delete('/employee-retirements/:id', auth, privilege(['retirements.delete'
     }
 });
 
-// Employee Loans
+// --- Employee Loans ---
 router.post('/employee-loans', auth, privilege(['loans.create']), async (req, res) => {
     const { staffId, loanAmount, loanDate, status, repaymentSchedule, userId } = req.body;
     try {
@@ -713,7 +693,7 @@ router.delete('/employee-loans/:id', auth, privilege(['loans.delete']), async (r
     }
 });
 
-// Monthly Payroll
+// --- Monthly Payroll ---
 router.post('/monthly-payroll', auth, privilege(['payroll.create']), async (req, res) => {
     const { staffId, payPeriod, grossSalary, netSalary, allowances, deductions, userId } = req.body;
     try {
@@ -754,7 +734,7 @@ router.delete('/monthly-payroll/:id', auth, privilege(['payroll.delete']), async
     }
 });
 
-// Employee Dependants
+// --- Employee Dependants ---
 router.post('/employee-dependants', auth, privilege(['dependants.create']), async (req, res) => {
     const { staffId, dependantName, relationship, dateOfBirth, userId } = req.body;
     try {
@@ -795,7 +775,7 @@ router.delete('/employee-dependants/:id', auth, privilege(['dependants.delete'])
     }
 });
 
-// Employee Terminations
+// --- Employee Terminations ---
 router.post('/employee-terminations', auth, privilege(['terminations.create']), async (req, res) => {
     const { staffId, exitDate, reason, exitInterviewDetails, userId } = req.body;
     try {
@@ -836,7 +816,7 @@ router.delete('/employee-terminations/:id', auth, privilege(['terminations.delet
     }
 });
 
-// Employee Bank Details
+// --- Employee Bank Details ---
 router.post('/employee-bank-details', auth, privilege(['bank_details.create']), async (req, res) => {
     const { staffId, bankName, accountNumber, branchName, isPrimary, userId } = req.body;
     try {
@@ -877,7 +857,7 @@ router.delete('/employee-bank-details/:id', auth, privilege(['bank_details.delet
     }
 });
 
-// Employee Memberships
+// --- Employee Memberships ---
 router.post('/employee-memberships', auth, privilege(['memberships.create']), async (req, res) => {
     const { staffId, organizationName, membershipNumber, startDate, endDate, userId } = req.body;
     try {
@@ -918,7 +898,7 @@ router.delete('/employee-memberships/:id', auth, privilege(['memberships.delete'
     }
 });
 
-// Employee Benefits
+// --- Employee Benefits ---
 router.post('/employee-benefits', auth, privilege(['benefits.create']), async (req, res) => {
     const { staffId, benefitName, enrollmentDate, status, userId } = req.body;
     try {
@@ -959,11 +939,12 @@ router.delete('/employee-benefits/:id', auth, privilege(['benefits.delete']), as
     }
 });
 
-// Assigned Assets
+// --- Assigned Assets ---
 router.post('/assigned-assets', auth, privilege(['assets.create']), async (req, res) => {
     const { staffId, assetName, serialNumber, assignmentDate, returnDate, condition, userId } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO kemri_assigned_assets (staffId, assetName, serialNumber, assignmentDate, returnDate, condition, userId) VALUES (?, ?, ?, ?, ?, ?, ?)', [staffId, assetName, serialNumber, assignmentDate, returnDate, condition, userId]);
+        const sql = 'INSERT INTO kemri_assigned_assets (staffId, assetName, serialNumber, assignmentDate, returnDate, `condition`, userId) VALUES (?, ?, ?, ?, ?, ?, ?)';
+        const [result] = await pool.query(sql, [staffId, assetName, serialNumber, assignmentDate, returnDate, condition, userId]);
         res.status(201).json({ id: result.insertId, message: 'Asset assignment recorded successfully' });
     } catch (err) {
         console.error('Error adding asset assignment:', err);
@@ -975,7 +956,8 @@ router.put('/assigned-assets/:id', auth, privilege(['assets.update']), async (re
     const { id } = req.params;
     const { staffId, assetName, serialNumber, assignmentDate, returnDate, condition, userId } = req.body;
     try {
-        const [result] = await pool.query('UPDATE kemri_assigned_assets SET staffId = ?, assetName = ?, serialNumber = ?, assignmentDate = ?, returnDate = ?, condition = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, assetName, serialNumber, assignmentDate, returnDate, condition, userId, id]);
+        const sql = 'UPDATE kemri_assigned_assets SET staffId = ?, assetName = ?, serialNumber = ?, assignmentDate = ?, returnDate = ?, `condition` = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
+        const [result] = await pool.query(sql, [staffId, assetName, serialNumber, assignmentDate, returnDate, condition, userId, id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Asset assignment not found.' });
         }
@@ -1000,14 +982,49 @@ router.delete('/assigned-assets/:id', auth, privilege(['assets.delete']), async 
     }
 });
 
-// Job Groups
-router.get('/job-groups', auth, privilege(['job_group.read_all']), async (req, res) => {
+// --- Employee Project Assignments ---
+router.post('/project-assignments', auth, privilege(['project.assignments.create']), async (req, res) => {
+    const { staffId, projectId, milestoneName, role, status, dueDate, userId } = req.body;
     try {
-        const [rows] = await pool.query('SELECT * FROM kemri_job_groups WHERE voided = 0');
-        res.json(rows);
+        const sql = 'INSERT INTO kemri_employee_project_assignments (staffId, projectId, milestoneName, role, status, dueDate, userId) VALUES (?, ?, ?, ?, ?, ?, ?)';
+        const [result] = await pool.query(sql, [staffId, projectId, milestoneName, role, status, dueDate, userId]);
+        res.status(201).json({ id: result.insertId, message: 'Project assignment added successfully' });
     } catch (err) {
-        console.error('Error fetching job groups:', err);
-        res.status(500).send('Error fetching job groups');
+        console.error('Error adding project assignment:', err);
+        res.status(500).send('Error adding project assignment');
     }
 });
+
+router.put('/project-assignments/:id', auth, privilege(['project.assignments.update']), async (req, res) => {
+    const { id } = req.params;
+    const { staffId, projectId, milestoneName, role, status, dueDate, userId } = req.body;
+    try {
+        const sql = 'UPDATE kemri_employee_project_assignments SET staffId = ?, projectId = ?, milestoneName = ?, role = ?, status = ?, dueDate = ?, userId = ? WHERE id = ?';
+        const [result] = await pool.query(sql, [staffId, projectId, milestoneName, role, status, dueDate, userId, id]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Project assignment not found.' });
+        }
+        res.status(200).json({ message: 'Project assignment updated successfully' });
+    } catch (err) {
+        console.error('Error updating project assignment:', err);
+        res.status(500).send('Error updating project assignment');
+    }
+});
+
+router.delete('/project-assignments/:id', auth, privilege(['project.assignments.delete']), async (req, res) => {
+    const { id } = req.params;
+    try {
+        const sql = 'UPDATE kemri_employee_project_assignments SET voided = 1 WHERE id = ?';
+        const [result] = await pool.query(sql, [id]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Project assignment not found.' });
+        }
+        res.status(200).json({ message: 'Project assignment deleted successfully' });
+    } catch (err) {
+        console.error('Error deleting project assignment:', err);
+        res.status(500).send('Error deleting project assignment');
+    }
+});
+
+
 module.exports = router;
