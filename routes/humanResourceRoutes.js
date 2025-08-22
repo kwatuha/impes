@@ -91,7 +91,18 @@ router.get('/employees/:id/360', auth, privilege(['employee.read_all', 'employee
             pool.query('SELECT * FROM kemri_assigned_assets WHERE staffId = ? AND voided = 0', [id]),
             pool.query('SELECT * FROM kemri_employee_promotions WHERE staffId = ? AND voided = 0 ORDER BY promotionDate DESC', [id]),
             pool.query('SELECT * FROM kemri_employee_project_assignments WHERE staffId = ? AND voided = 0', [id]),
-            pool.query('SELECT la.*, lt.name as leaveTypeName FROM kemri_leave_applications la JOIN kemri_leave_types lt ON la.leaveTypeId = lt.id WHERE la.staffId = ? AND la.voided = 0 ORDER BY la.startDate DESC', [id]),
+            pool.query(`
+                SELECT 
+                    la.*, 
+                    lt.name as leaveTypeName,
+                    hs.firstName AS handoverFirstName,
+                    hs.lastName AS handoverLastName
+                FROM kemri_leave_applications la 
+                JOIN kemri_leave_types lt ON la.leaveTypeId = lt.id
+                LEFT JOIN kemri_staff hs ON la.handoverStaffId = hs.staffId 
+                WHERE la.staffId = ? AND la.voided = 0 
+                ORDER BY la.startDate DESC
+            `, [id]),
             pool.query('SELECT * FROM kemri_job_groups WHERE voided = 0')
         ];
 
