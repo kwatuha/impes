@@ -8,6 +8,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
+const sharp = require('sharp'); // NEW: Import sharp for image processing
 
 // Main upload directory for all project documents
 const baseUploadDir = path.join(__dirname, '..', '..', 'uploads');
@@ -123,6 +124,127 @@ router.get('/project/:projectId', auth, privilege(['document.read_all']), async 
 });
 
 
+// NEW: @route PUT /api/documents/reorder
+// @desc Updates the display order of documents
+// @access Private (e.g., requires 'document.update' privilege)
+router.put('/reorder', auth, privilege(['document.update']), async (req, res) => {
+    const { photos } = req.body;
+    let connection;
+
+    if (!photos || !Array.isArray(photos) || photos.length === 0) {
+        return res.status(400).json({ message: 'Invalid request body. Expected an array of photos.' });
+    }
+
+    try {
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        const updatePromises = photos.map(photo => {
+            return connection.query(
+                'UPDATE kemri_project_documents SET displayOrder = ? WHERE id = ?',
+                [photo.displayOrder, photo.id]
+            );
+        });
+
+        await Promise.all(updatePromises);
+        await connection.commit();
+        res.status(200).json({ message: 'Photos reordered successfully.' });
+
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Error reordering photos:', error);
+        res.status(500).json({ message: 'Error reordering photos', error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+
+// NEW: @route PUT /api/documents/resize/:documentId
+// @desc Resizes a specific document (e.g., a photo)
+// @access Private (e.g., requires 'document.update' privilege)
+router.put('/resize/:documentId', auth, privilege(['document.update']), async (req, res) => {
+    const { documentId } = req.params;
+    const { width, height } = req.body;
+    let connection;
+
+    if (!width || !height) {
+        return res.status(400).json({ message: 'Missing width or height for resizing.' });
+    }
+    
+    try {
+        connection = await db.getConnection();
+        const [rows] = await connection.query('SELECT documentPath FROM kemri_project_documents WHERE id = ? AND voided = 0', [documentId]);
+        if (rows.length === 0) {
+            return res.status(404).json({ message: 'Document not found.' });
+        }
+        
+        const originalPath = path.join(baseUploadDir, '..', rows[0].documentPath);
+        const fileExtension = path.extname(originalPath);
+        const newFileName = `${uuidv4()}${fileExtension}`;
+        const resizedPath = path.join(path.dirname(originalPath), newFileName);
+        const dbPath = path.relative(path.join(__dirname, '..', '..'), resizedPath).replace(/\\/g, '/');
+
+        // Use sharp to resize the image
+        await sharp(originalPath)
+            .resize(parseInt(width, 10), parseInt(height, 10))
+            .toFile(resizedPath);
+
+        // Update the database with the new document path
+        await connection.query(
+            'UPDATE kemri_project_documents SET documentPath = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
+            [dbPath, documentId]
+        );
+
+        res.status(200).json({ message: 'Document resized successfully.', newPath: dbPath });
+
+    } catch (error) {
+        console.error('Error resizing document:', error);
+        res.status(500).json({ message: 'Error resizing document', error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+
+// @route   PUT /api/documents/cover/:documentId
+// @desc    Sets a specific photo as the project cover.
+// @access  Private (requires 'project.update' privilege)
+router.put('/cover/:documentId', auth, privilege(['project.update']), async (req, res) => {
+    const { documentId } = req.params;
+    const userId = req.user.id;
+    let connection;
+    try {
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        // Get the projectId of the document to update
+        const [doc] = await connection.query('SELECT projectId FROM kemri_project_documents WHERE id = ? AND voided = 0', [documentId]);
+        if (doc.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ message: 'Document not found.' });
+        }
+        const projectId = doc[0].projectId;
+
+        // Reset the cover status for all other photos for this project
+        await connection.query('UPDATE kemri_project_documents SET isProjectCover = 0 WHERE projectId = ?', [projectId]);
+
+        // Set the specified document as the new project cover
+        await connection.query('UPDATE kemri_project_documents SET isProjectCover = 1 WHERE id = ?', [documentId]);
+        
+        await connection.commit();
+        res.status(200).json({ message: 'Project cover photo updated successfully.' });
+
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Error setting project cover photo:', error);
+        res.status(500).json({ message: 'Error setting project cover photo', error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+
 // @route   PUT /api/documents/:documentId
 // @desc    Updates a document's details (e.g., description).
 // @access  Private (requires 'document.update' privilege)
@@ -172,42 +294,5 @@ router.delete('/:documentId', auth, privilege(['document.delete']), async (req, 
     }
 });
 
-
-// @route   PUT /api/documents/cover/:documentId
-// @desc    Sets a specific photo as the project cover.
-// @access  Private (requires 'project.update' privilege)
-router.put('/cover/:documentId', auth, privilege(['project.update']), async (req, res) => {
-    const { documentId } = req.params;
-    const userId = req.user.id;
-    let connection;
-    try {
-        connection = await db.getConnection();
-        await connection.beginTransaction();
-
-        // Get the projectId of the document to update
-        const [doc] = await connection.query('SELECT projectId FROM kemri_project_documents WHERE id = ? AND voided = 0', [documentId]);
-        if (doc.length === 0) {
-            await connection.rollback();
-            return res.status(404).json({ message: 'Document not found.' });
-        }
-        const projectId = doc[0].projectId;
-
-        // Reset the cover status for all other photos for this project
-        await connection.query('UPDATE kemri_project_documents SET isProjectCover = 0 WHERE projectId = ?', [projectId]);
-
-        // Set the specified document as the new project cover
-        await connection.query('UPDATE kemri_project_documents SET isProjectCover = 1 WHERE id = ?', [documentId]);
-        
-        await connection.commit();
-        res.status(200).json({ message: 'Project cover photo updated successfully.' });
-
-    } catch (error) {
-        if (connection) await connection.rollback();
-        console.error('Error setting project cover photo:', error);
-        res.status(500).json({ message: 'Error setting project cover photo', error: error.message });
-    } finally {
-        if (connection) connection.release();
-    }
-});
 
 module.exports = router;
