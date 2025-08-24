@@ -37,6 +37,7 @@ const contractorRoutes = require('./routes/contractorRoutes');
 const paymentRequestRoutes = require('./routes/paymentRequestRoutes');
 const contractorPhotoRoutes = require('./routes/contractorPhotoRoutes');
 const hrRoutes = require('./routes/humanResourceRoutes');
+const projectDocumentsRoutes = require('./routes/projectDocumentsRoutes');
 
 const app = express();
 const port = 3000;
@@ -106,6 +107,7 @@ app.use('/api/contractors', express.json(), contractorRoutes);
 app.use('/api/payment-requests', paymentRequestRoutes);
 app.use('/api/contractor-photos', express.json(), contractorPhotoRoutes);
 app.use('/api/hr', express.json(), hrRoutes);
+app.use('/api/projects/documents', express.json(), projectDocumentsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

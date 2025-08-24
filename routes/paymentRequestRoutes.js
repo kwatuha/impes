@@ -1,6 +1,6 @@
 // backend/routes/paymentRequestRoutes.js
 const express = require('express');
-const router = express.Router();
+const router = require('express').Router();
 const db = require('../config/db');
 const auth = require('../middleware/authenticate');
 const privilege = require('../middleware/privilegeMiddleware');
@@ -9,8 +9,8 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 
-// Main upload directory for payment requests
-const baseUploadDir = path.join(__dirname, '..', '..', 'uploads', 'payment-requests');
+// Main upload directory for all project documents
+const baseUploadDir = path.join(__dirname, '..', '..', 'uploads');
 
 // Ensure the base upload directory exists
 if (!fs.existsSync(baseUploadDir)) {
@@ -25,24 +25,21 @@ if (!fs.existsSync(baseUploadDir)) {
 // Multer storage configuration for file uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        console.log(`Multer destination function called for file: ${file.originalname}`);
-
-        // Get the requestId from the request parameters
-        const { requestId } = req.params;
-        if (!requestId) {
-            console.error("Missing requestId in request parameters. Cannot create structured upload path.");
-            // Fallback to the base directory to prevent a crash
-            return cb(null, baseUploadDir);
+        // Get the projectId and documentCategory from the request body
+        const { projectId, documentCategory } = req.body;
+        if (!projectId || !documentCategory) {
+            return cb(new Error("Missing projectId or documentCategory in request body. Cannot save file."));
         }
-
+        
         // Construct the specific upload directory for this request
-        const requestUploadDir = path.join(baseUploadDir, requestId);
+        const projectUploadDir = path.join(baseUploadDir, 'projects', projectId.toString());
+        const documentUploadDir = path.join(projectUploadDir, documentCategory);
 
-        // Ensure the directory exists.
-        if (!fs.existsSync(requestUploadDir)) {
-            fs.mkdirSync(requestUploadDir, { recursive: true });
+        // Ensure the directory exists. Use recursive: true to create parent directories if needed.
+        if (!fs.existsSync(documentUploadDir)) {
+            fs.mkdirSync(documentUploadDir, { recursive: true });
         }
-        cb(null, requestUploadDir);
+        cb(null, documentUploadDir);
     },
     filename: (req, file, cb) => {
         // Generate a unique filename while preserving the original file extension
@@ -93,10 +90,28 @@ router.post('/', auth, privilege(['payment_request.create']), async (req, res) =
             await connection.query('INSERT INTO kemri_payment_request_milestones (requestId, activityId, status, userId) VALUES ?', [milestoneValues]);
         }
 
-        // 3. Insert into kemri_payment_request_documents
+        // 3. Insert into kemri_project_documents
         if (documents && documents.length > 0) {
-            const documentValues = documents.map(doc => [requestId, doc.documentType, doc.documentPath, doc.description, userId]);
-            await connection.query('INSERT INTO kemri_payment_request_documents (requestId, documentType, documentPath, description, uploadedByUserId) VALUES ?', [documentValues]);
+            // Updated to use new table name and structure with camelCase fields
+            const documentValues = documents.map(doc => [
+                doc.projectId,
+                doc.milestoneId,
+                doc.requestId,
+                doc.documentType,
+                'payment',
+                doc.documentPath,
+                doc.description,
+                userId, // Now correctly using the userId from the authenticated user
+                0,      // isProjectCover
+                0,      // voided
+                new Date(), // createdAt
+                new Date()  // updatedAt
+            ]);
+
+            await connection.query(
+                `INSERT INTO kemri_project_documents (projectId, milestoneId, requestId, documentType, documentCategory, documentPath, description, userId, isProjectCover, voided, createdAt, updatedAt) VALUES ?`,
+                [documentValues]
+            );
         }
 
         // 4. Insert into kemri_inspection_teams
@@ -113,54 +128,6 @@ router.post('/', auth, privilege(['payment_request.create']), async (req, res) =
         if (connection) await connection.rollback();
         console.error('Error submitting payment request:', error);
         res.status(500).json({ message: 'Error submitting payment request', error: error.message });
-    } finally {
-        if (connection) connection.release();
-    }
-});
-
-// @route   POST /api/payment-requests/documents/:requestId
-// @desc    Upload documents and photos for an existing payment request
-// @access  Private (e.g., requires 'payment_request.upload_document' privilege)
-router.post('/documents/:requestId', auth, privilege(['payment_request.upload_document']), upload.array('documents'), async (req, res) => {
-    // 🐛 FIX: Added a safeguard (req.body || {}) to prevent destructuring from undefined
-    const { documentType } = req.body || {};
-    const { requestId } = req.params;
-    const userId = req.user.id;
-    const files = req.files;
-
-    // 🐛 DEBUGGING: Log req.body and req.files to see what multer is populating them with
-    console.log("Req.body from multer:", req.body);
-    console.log("Req.files from multer:", files);
-
-    if (!files || files.length === 0 || !documentType) {
-        console.error("No files received or document type is missing.");
-        return res.status(400).json({ message: 'Missing files or document type.' });
-    }
-
-    let connection;
-    try {
-        connection = await db.getConnection();
-        await connection.beginTransaction();
-
-        const documentValues = files.map(file => {
-            // Updated documentPath to reflect the new nested folder structure
-            // Use path.relative to create a clean, relative path
-            const documentPath = path.relative(path.join(__dirname, '..', '..'), file.path);
-            return [requestId, documentType, documentPath.replace(/\\/g, '/'), null, userId];
-        });
-
-        await connection.query(
-            'INSERT INTO kemri_payment_request_documents (requestId, documentType, documentPath, description, uploadedByUserId) VALUES ?',
-            [documentValues]
-        );
-        
-        await connection.commit();
-        res.status(201).json({ message: 'Documents uploaded successfully.' });
-
-    } catch (error) {
-        if (connection) await connection.rollback();
-        console.error('Error uploading documents:', error);
-        res.status(500).json({ message: 'Error uploading documents', error: error.message });
     } finally {
         if (connection) connection.release();
     }
@@ -239,7 +206,8 @@ router.get('/request/:requestId', auth, privilege(['payment_request.read_all']),
         }
 
         const [milestones] = await connection.query('SELECT * FROM kemri_payment_request_milestones WHERE requestId = ? AND voided = 0', [requestId]);
-        const [documents] = await connection.query('SELECT * FROM kemri_payment_request_documents WHERE requestId = ? AND voided = 0', [requestId]);
+        // UPDATED: Now fetches from the consolidated table
+        const [documents] = await connection.query('SELECT * FROM kemri_project_documents WHERE requestId = ? AND voided = 0', [requestId]);
         const [inspectionTeam] = await connection.query('SELECT * FROM kemri_inspection_teams WHERE requestId = ? AND voided = 0', [requestId]);
         const [approvals] = await connection.query('SELECT * FROM kemri_payment_request_approvals WHERE requestId = ? AND voided = 0', [requestId]);
 
