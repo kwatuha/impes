@@ -1,4 +1,3 @@
-// backend/routes/projectDocumentsRoutes.js
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
@@ -8,12 +7,11 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
-const sharp = require('sharp'); // NEW: Import sharp for image processing
+const sharp = require('sharp');
 
 // Main upload directory for all project documents
 const baseUploadDir = path.join(__dirname, '..', '..', 'uploads');
 
-// Ensure the base upload directory exists
 if (!fs.existsSync(baseUploadDir)) {
     try {
         fs.mkdirSync(baseUploadDir, { recursive: true });
@@ -23,27 +21,17 @@ if (!fs.existsSync(baseUploadDir)) {
     }
 }
 
-// Multer storage configuration for file uploads
+// FIX: Refactored Multer storage to handle dynamic paths correctly.
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        // Get the projectId and documentCategory from the request body
-        const { projectId, documentCategory } = req.body;
-        if (!projectId || !documentCategory) {
-            return cb(new Error("Missing projectId or documentCategory in request body. Cannot save file."));
+        // Use a temporary folder that's not tied to req.body
+        const tempUploadDir = path.join(baseUploadDir, 'temp');
+        if (!fs.existsSync(tempUploadDir)) {
+            fs.mkdirSync(tempUploadDir, { recursive: true });
         }
-        
-        // Construct the specific upload directory for this request
-        const projectUploadDir = path.join(baseUploadDir, 'projects', projectId.toString());
-        const documentUploadDir = path.join(projectUploadDir, documentCategory);
-
-        // Ensure the directory exists. Use recursive: true to create parent directories if needed.
-        if (!fs.existsSync(documentUploadDir)) {
-            fs.mkdirSync(documentUploadDir, { recursive: true });
-        }
-        cb(null, documentUploadDir);
+        cb(null, tempUploadDir);
     },
     filename: (req, file, cb) => {
-        // Generate a unique filename while preserving the original file extension
         const fileExtension = path.extname(file.originalname);
         cb(null, `${uuidv4()}${fileExtension}`);
     }
@@ -56,12 +44,13 @@ const upload = multer({ storage });
 // @desc    Upload documents and photos for a project.
 // @access  Private (e.g., requires 'document.create' privilege)
 router.post('/', auth, privilege(['document.create']), upload.array('documents'), async (req, res) => {
-    const { projectId, milestoneId, requestId, documentType, documentCategory, description } = req.body;
+    // FIX: Destructure new field 'originalFileName' from the request body
+    const { projectId, milestoneId, requestId, documentType, documentCategory, description, status, progressPercentage, originalFileName } = req.body;
     const userId = req.user.id;
     const files = req.files;
 
-    if (!files || files.length === 0 || !projectId || !documentType || !documentCategory) {
-        return res.status(400).json({ message: 'Missing files or required fields: projectId, documentType, and documentCategory.' });
+    if (!files || files.length === 0 || !projectId || !documentType || !documentCategory || !status) {
+        return res.status(400).json({ message: 'Missing files or required fields: projectId, documentType, documentCategory, and status.' });
     }
 
     let connection;
@@ -69,26 +58,45 @@ router.post('/', auth, privilege(['document.create']), upload.array('documents')
         connection = await db.getConnection();
         await connection.beginTransaction();
 
-        const documentValues = files.map(file => {
-            const documentPath = path.relative(path.join(__dirname, '..', '..'), file.path);
+        const documentValues = await Promise.all(files.map(async file => {
+            const tempPath = file.path;
+            
+            const projectUploadDir = path.join(baseUploadDir, 'projects', projectId.toString());
+            const finalUploadDir = path.join(projectUploadDir, documentCategory);
+
+            if (!fs.existsSync(finalUploadDir)) {
+                fs.mkdirSync(finalUploadDir, { recursive: true });
+            }
+
+            const finalFileName = `${uuidv4()}${path.extname(file.originalname)}`;
+            const finalPath = path.join(finalUploadDir, finalFileName);
+            
+            fs.renameSync(tempPath, finalPath);
+
+            const documentPathForDb = path.relative(path.join(__dirname, '..', '..'), finalPath).replace(/\\/g, '/');
+            
             return [
                 projectId, 
                 milestoneId || null, 
                 requestId || null,
                 documentType, 
                 documentCategory, 
-                documentPath.replace(/\\/g, '/'), 
+                documentPathForDb, 
+                originalFileName || null, // FIX: Use the originalFileName
                 description || null,
                 userId, 
                 0, // isProjectCover
                 0, // voided
                 new Date(), // createdAt
-                new Date()  // updatedAt
+                new Date(),  // updatedAt
+                status,
+                progressPercentage || null
             ];
-        });
+        }));
 
         await connection.query(
-            `INSERT INTO kemri_project_documents (projectId, milestoneId, requestId, documentType, documentCategory, documentPath, description, userId, isProjectCover, voided, createdAt, updatedAt) VALUES ?`,
+            // FIX: Add originalFileName to the SQL query
+            `INSERT INTO kemri_project_documents (projectId, milestoneId, requestId, documentType, documentCategory, documentPath, originalFileName, description, userId, isProjectCover, voided, createdAt, updatedAt, status, progressPercentage) VALUES ?`,
             [documentValues]
         );
         
@@ -100,6 +108,13 @@ router.post('/', auth, privilege(['document.create']), upload.array('documents')
         console.error('Error uploading documents:', error);
         res.status(500).json({ message: 'Error uploading documents', error: error.message });
     } finally {
+        if (req.files) {
+            req.files.forEach(file => {
+                if (fs.existsSync(file.path)) {
+                    fs.unlinkSync(file.path);
+                }
+            });
+        }
         if (connection) connection.release();
     }
 });
@@ -294,5 +309,22 @@ router.delete('/:documentId', auth, privilege(['document.delete']), async (req, 
     }
 });
 
+// @route   GET /api/documents/milestone/:milestoneId
+// @desc    Get all documents and photos for a specific milestone.
+// @access  Private (requires 'document.read_all' or 'document.read_own' privilege)
+router.get('/milestone/:milestoneId', auth, privilege(['document.read_all']), async (req, res) => {
+    const { milestoneId } = req.params;
+    let connection;
+    try {
+        connection = await db.getConnection();
+        const [rows] = await connection.query('SELECT * FROM kemri_project_documents WHERE milestoneId = ? AND voided = 0', [milestoneId]);
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching milestone documents:', error);
+        res.status(500).json({ message: 'Error fetching milestone documents', error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
 
 module.exports = router;
