@@ -1,19 +1,19 @@
 const express = require('express');
 // We use { mergeParams: true } because we need projectId from the parent router
-const router = express.Router({ mergeParams: true }); 
+const router = express.Router({ mergeParams: true });
 const pool = require('../config/db'); // Import the database connection pool
 
 // --- Project Monitoring Records API Calls (kemri_project_monitoring_records) ---
 
 /**
  * @route POST /api/projects/:projectId/monitoring
- * @description Creates a new monitoring record for a project.
+ * @description Creates a new monitoring record for a project, including observations, recommendations, and challenges.
  * @access Private (requires authentication and privilege)
  */
 router.post('/', async (req, res) => {
     const { projectId } = req.params;
-    const { comment, warningLevel, isRoutineObservation } = req.body;
-    
+    const { comment, recommendations, challenges, warningLevel, isRoutineObservation } = req.body;
+
     // TODO: Get userId from authenticated user (e.g., req.user.userId)
     const userId = 1; // Placeholder for now
 
@@ -24,6 +24,8 @@ router.post('/', async (req, res) => {
     const newRecord = {
         projectId,
         comment,
+        recommendations, // Added
+        challenges, // Added
         warningLevel: warningLevel || 'None',
         isRoutineObservation: isRoutineObservation || 1,
         userId,
@@ -41,6 +43,7 @@ router.post('/', async (req, res) => {
     }
 });
 
+// GET route remains the same as it uses 'SELECT *' and will fetch all columns automatically.
 /**
  * @route GET /api/projects/:projectId/monitoring
  * @description Get all active monitoring records for a specific project.
@@ -68,13 +71,15 @@ router.get('/', async (req, res) => {
 // CORRECTED: The path should be just '/:recordId' because the parent already provides '/:projectId/monitoring'
 router.put('/:recordId', async (req, res) => {
     const { projectId, recordId } = req.params;
-    const { comment, warningLevel, isRoutineObservation } = req.body;
-    
+    const { comment, recommendations, challenges, warningLevel, isRoutineObservation } = req.body;
+
     // TODO: Get userId from authenticated user (e.g., req.user.userId)
     const userId = 1;
 
     const updatedFields = {
         comment,
+        recommendations, // Added
+        challenges, // Added
         warningLevel,
         isRoutineObservation,
         updatedAt: new Date(),
@@ -85,7 +90,7 @@ router.put('/:recordId', async (req, res) => {
             'UPDATE kemri_project_monitoring_records SET ? WHERE recordId = ? AND projectId = ? AND voided = 0',
             [updatedFields, recordId, projectId] // Added projectId for an extra layer of security
         );
-        
+
         if (result.affectedRows > 0) {
             const [rows] = await pool.query('SELECT * FROM kemri_project_monitoring_records WHERE recordId = ?', [recordId]);
             res.status(200).json(rows[0]);
