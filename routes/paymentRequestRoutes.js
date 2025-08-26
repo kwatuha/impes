@@ -1,4 +1,3 @@
-// backend/routes/paymentRequestRoutes.js
 const express = require('express');
 const router = require('express').Router();
 const db = require('../config/db');
@@ -43,6 +42,21 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage });
+
+/**
+ * Helper function to check if a contractor is assigned to a project.
+ * @param {number} contractorId The ID of the contractor.
+ * @param {number} projectId The ID of the project.
+ * @returns {Promise<boolean>} True if the contractor is assigned, otherwise false.
+ */
+async function isContractorAssignedToProject(contractorId, projectId) {
+    if (!contractorId || !projectId) return false;
+    const [rows] = await db.query(
+        'SELECT 1 FROM kemri_project_contractor_assignments WHERE contractorId = ? AND projectId = ?',
+        [contractorId, projectId]
+    );
+    return rows.length > 0;
+}
 
 
 // @route   POST /api/payment-requests
@@ -255,8 +269,17 @@ router.get('/:requestId/payment-details', auth, privilege(['payment_details.read
 // @route   GET /api/payment-requests/project/:projectId
 // @desc    Get all payment requests for a specific project.
 // @access  Private (requires 'payment_request.read_all' or 'payment_request.read_own' privilege)
-router.get('/project/:projectId', auth, privilege(['payment_request.read_all']), async (req, res) => {
+router.get('/project/:projectId', auth, async (req, res) => {
     const { projectId } = req.params;
+    const { id: userId, contractorId, privileges } = req.user;
+
+    const hasReadPrivilege = privileges.includes('payment_request.read_all');
+    const isAssignedContractor = contractorId && await isContractorAssignedToProject(contractorId, projectId);
+
+    if (!hasReadPrivilege && !isAssignedContractor) {
+        return res.status(403).json({ message: 'Access denied. You do not have the necessary privileges to perform this action.' });
+    }
+
     let connection;
     try {
         connection = await db.getConnection();
@@ -276,8 +299,29 @@ router.get('/project/:projectId', auth, privilege(['payment_request.read_all']),
 // @route   GET /api/payment-requests/request/:requestId
 // @desc    Get a specific payment request with all its related details.
 // @access  Private (requires 'payment_request.read_all' or 'payment_request.read_own' privilege)
-router.get('/request/:requestId', auth, privilege(['payment_request.read_all']), async (req, res) => {
+router.get('/request/:requestId', auth, async (req, res) => {
     const { requestId } = req.params;
+    const { id: userId, contractorId, privileges } = req.user;
+
+    // First, check if the user is a contractor assigned to the project
+    let requestProjectId;
+    try {
+        const [projectRow] = await db.query('SELECT projectId FROM kemri_project_payment_requests WHERE requestId = ?', [requestId]);
+        if (projectRow.length === 0) {
+            return res.status(404).json({ message: 'Payment request not found.' });
+        }
+        requestProjectId = projectRow[0].projectId;
+    } catch (error) {
+        return res.status(500).json({ message: 'Error fetching project ID for the request.', error: error.message });
+    }
+
+    const hasReadPrivilege = privileges.includes('payment_request.read_all');
+    const isAssignedContractor = contractorId && await isContractorAssignedToProject(contractorId, requestProjectId);
+    
+    if (!hasReadPrivilege && !isAssignedContractor) {
+        return res.status(403).json({ message: 'Access denied. You do not have the necessary privileges to perform this action.' });
+    }
+    
     let connection;
     try {
         connection = await db.getConnection();

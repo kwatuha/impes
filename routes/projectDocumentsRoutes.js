@@ -40,6 +40,22 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 
+/**
+ * Helper function to check if a contractor is assigned to a project.
+ * @param {number} contractorId The ID of the contractor.
+ * @param {number} projectId The ID of the project.
+ * @returns {Promise<boolean>} True if the contractor is assigned, otherwise false.
+ */
+async function isContractorAssignedToProject(contractorId, projectId) {
+    if (!contractorId || !projectId) return false;
+    const [rows] = await db.query(
+        'SELECT 1 FROM kemri_project_contractor_assignments WHERE contractorId = ? AND projectId = ?',
+        [contractorId, projectId]
+    );
+    return rows.length > 0;
+}
+
+
 // @route   POST /api/documents
 // @desc    Upload documents and photos for a project.
 // @access  Private (e.g., requires 'document.create' privilege)
@@ -123,8 +139,18 @@ router.post('/', auth, privilege(['document.create']), upload.array('documents')
 // @route   GET /api/documents/project/:projectId
 // @desc    Get all documents and photos for a specific project.
 // @access  Private (e.g., requires 'document.read_all' or 'document.read_own' privilege)
-router.get('/project/:projectId', auth, privilege(['document.read_all']), async (req, res) => {
+// UPDATED: Replaced middleware with granular access check
+router.get('/project/:projectId', auth, async (req, res) => {
     const { projectId } = req.params;
+    const { contractorId, privileges } = req.user;
+
+    const hasReadPrivilege = privileges.includes('document.read_all');
+    const isAssignedContractor = contractorId && await isContractorAssignedToProject(contractorId, projectId);
+
+    if (!hasReadPrivilege && !isAssignedContractor) {
+        return res.status(403).json({ message: 'Access denied. You do not have the necessary privileges to perform this action.' });
+    }
+
     let connection;
     try {
         connection = await db.getConnection();
@@ -312,11 +338,32 @@ router.delete('/:documentId', auth, privilege(['document.delete']), async (req, 
 // @route   GET /api/documents/milestone/:milestoneId
 // @desc    Get all documents and photos for a specific milestone.
 // @access  Private (requires 'document.read_all' or 'document.read_own' privilege)
-router.get('/milestone/:milestoneId', auth, privilege(['document.read_all']), async (req, res) => {
+// UPDATED: Replaced middleware with granular access check
+router.get('/milestone/:milestoneId', auth, async (req, res) => {
     const { milestoneId } = req.params;
+    const { contractorId, privileges } = req.user;
+
     let connection;
     try {
         connection = await db.getConnection();
+
+        // Check the projectId associated with the milestone
+        const [milestoneRows] = await connection.query(
+            'SELECT projectId FROM kemri_project_milestones WHERE milestoneId = ?',
+            [milestoneId]
+        );
+        if (milestoneRows.length === 0) {
+            return res.status(404).json({ message: 'Milestone not found.' });
+        }
+        const projectId = milestoneRows[0].projectId;
+
+        const hasReadPrivilege = privileges.includes('document.read_all');
+        const isAssignedContractor = contractorId && await isContractorAssignedToProject(contractorId, projectId);
+
+        if (!hasReadPrivilege && !isAssignedContractor) {
+            return res.status(403).json({ message: 'Access denied. You do not have the necessary privileges to perform this action.' });
+        }
+
         const [rows] = await connection.query('SELECT * FROM kemri_project_documents WHERE milestoneId = ? AND voided = 0', [milestoneId]);
         res.json(rows);
     } catch (error) {
