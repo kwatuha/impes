@@ -11,7 +11,12 @@ const bcrypt = require('bcryptjs');
  */
 router.get('/users', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT userId, username, email, firstName, lastName, role, createdAt, updatedAt, isActive FROM kemri_users');
+        const [rows] = await pool.query(`
+            SELECT 
+                u.userId, u.username, u.email, u.firstName, u.lastName, u.createdAt, u.updatedAt, u.isActive, u.roleId, r.roleName AS role
+            FROM kemri_users u
+            LEFT JOIN kemri_roles r ON u.roleId = r.roleId
+        `);
         res.status(200).json(rows);
     } catch (error) {
         console.error('Error fetching users:', error);
@@ -26,7 +31,13 @@ router.get('/users', async (req, res) => {
 router.get('/users/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        const [rows] = await pool.query('SELECT userId, username, email, firstName, lastName, role, createdAt, updatedAt, isActive FROM kemri_users WHERE userId = ?', [id]);
+        const [rows] = await pool.query(`
+            SELECT 
+                u.userId, u.username, u.email, u.firstName, u.lastName, u.createdAt, u.updatedAt, u.isActive, u.roleId, r.roleName AS role
+            FROM kemri_users u
+            LEFT JOIN kemri_roles r ON u.roleId = r.roleId
+            WHERE u.userId = ?
+        `, [id]);
         if (rows.length > 0) {
             res.status(200).json(rows[0]);
         } else {
@@ -43,12 +54,10 @@ router.get('/users/:id', async (req, res) => {
  * @description Create a new user in the kemri_users table.
  */
 router.post('/users', async (req, res) => {
-    // CORRECTED: Destructure using camelCase to match frontend
-    const { username, email, password, firstName, lastName, role } = req.body;
+    const { username, email, password, firstName, lastName, roleId } = req.body;
 
-    // CORRECTED: Validate using camelCase names
-    if (!username || !email || !password || !firstName || !lastName) {
-        return res.status(400).json({ error: 'Please enter all required fields: username, email, password, first name, last name.' });
+    if (!username || !email || !password || !firstName || !lastName || !roleId) {
+        return res.status(400).json({ error: 'Please enter all required fields: username, email, password, first name, last name, and role ID.' });
     }
 
     try {
@@ -68,9 +77,9 @@ router.post('/users', async (req, res) => {
             username,
             email,
             passwordHash,
-            firstName, // CORRECTED: Use firstName directly
-            lastName,  // CORRECTED: Use lastName directly
-            role: role || 'user',
+            firstName,
+            lastName,
+            roleId,
             createdAt: new Date(),
             updatedAt: new Date(),
             isActive: true,
@@ -79,7 +88,13 @@ router.post('/users', async (req, res) => {
         const [result] = await pool.query('INSERT INTO kemri_users SET ?', newUser);
         
         const insertedUserId = result.insertId;
-        const [rows] = await pool.query('SELECT userId, username, email, firstName, lastName, role, createdAt, updatedAt, isActive FROM kemri_users WHERE userId = ?', [insertedUserId]);
+        const [rows] = await pool.query(`
+            SELECT 
+                u.userId, u.username, u.email, u.firstName, u.lastName, u.roleId, r.roleName AS role, u.createdAt, u.updatedAt, u.isActive
+            FROM kemri_users u
+            LEFT JOIN kemri_roles r ON u.roleId = r.roleId
+            WHERE u.userId = ?
+        `, [insertedUserId]);
         res.status(201).json(rows[0]);
     } catch (error) {
         console.error('Error creating user:', error);
@@ -98,7 +113,6 @@ router.put('/users/:id', async (req, res) => {
     const { id } = req.params;
     const { password, ...otherFieldsToUpdate } = req.body;
 
-    // CORRECTED: We now handle fields directly from the request body
     const fieldsToUpdate = { ...otherFieldsToUpdate, updatedAt: new Date() };
 
     if (password && password.trim() !== '') {
@@ -110,7 +124,13 @@ router.put('/users/:id', async (req, res) => {
     try {
         const [result] = await pool.query('UPDATE kemri_users SET ? WHERE userId = ?', [fieldsToUpdate, id]);
         if (result.affectedRows > 0) {
-            const [rows] = await pool.query('SELECT userId, username, email, firstName, lastName, role, createdAt, updatedAt, isActive FROM kemri_users WHERE userId = ?', [id]);
+            const [rows] = await pool.query(`
+                SELECT 
+                    u.userId, u.username, u.email, u.firstName, u.lastName, u.roleId, r.roleName AS role, u.createdAt, u.updatedAt, u.isActive
+                FROM kemri_users u
+                LEFT JOIN kemri_roles r ON u.roleId = r.roleId
+                WHERE u.userId = ?
+            `, [id]);
             res.status(200).json(rows[0]);
         } else {
             res.status(404).json({ message: 'User not found' });

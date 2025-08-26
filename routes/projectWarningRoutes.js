@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const pool = require('../config/db'); // Import the database connection pool
-
+const db = require('../config/db');
+const auth = require('../middleware/authenticate');
+const privilege = require('../middleware/privilegeMiddleware');
 // --- CRUD Operations for Project Warnings (kemri_projectwarnings) ---
 
 /**
