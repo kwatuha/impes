@@ -134,10 +134,14 @@ router.post('/login', async (req, res) => {
 
     try {
         const query = `
-            SELECT u.*, r.roleName AS role
+            SELECT 
+                u.*, 
+                r.roleName AS role,
+                cu.contractorId
             FROM kemri_users u
             LEFT JOIN kemri_roles r ON u.roleId = r.roleId
-            WHERE u.username = ? OR u.email = ?
+            LEFT JOIN kemri_contractor_users cu ON u.userId = cu.userId
+             WHERE (u.username = ? OR u.email = ?) AND u.voided = 0
         `;
         const [users] = await pool.execute(query, [username, username]);
 
@@ -158,7 +162,7 @@ router.post('/login', async (req, res) => {
         }
         
         const userPrivileges = await getPrivilegesByRole(user.roleId);
-
+console.log('uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu',user)
         const payload = {
             user: {
                 id: user.userId,
@@ -166,7 +170,9 @@ router.post('/login', async (req, res) => {
                 email: user.email,
                 roleId: user.roleId,
                 roleName: user.role,
-                privileges: userPrivileges
+                privileges: userPrivileges,
+                // Conditionally include contractorId in the JWT payload
+                ...(user.contractorId && { contractorId: user.contractorId })
             }
         };
 
