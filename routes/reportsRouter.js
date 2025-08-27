@@ -183,20 +183,33 @@ router.get('/project-list-detailed', async (req, res) => {
                 p.id,
                 fy.finYearName AS financialYearName,
                 d.name AS departmentName,
-                pc.categoryName AS projectCategory
+                pc.categoryName AS projectCategory,
+                c.name as countyName, 	sc.name as subCountyName, w.name as wardName
             FROM
                 kemri_projects p
             LEFT JOIN
                 kemri_departments d ON p.departmentId = d.departmentId
             LEFT JOIN
-                kemri_financialyears fy ON p.finYearId = fy.finYearId
+                kemri_financialyears fy ON p.finYearId = fy.finYearId 
             LEFT JOIN
                 kemri_project_milestone_implementations pc ON p.categoryId = pc.categoryId
+            LEFT JOIN
+        kemri_project_counties pcc ON p.id = pcc.projectId
+        LEFT JOIN
+            kemri_counties c ON pcc.countyId = c.countyId
+        LEFT JOIN
+            kemri_project_subcounties psc ON p.id = psc.projectId
+        LEFT JOIN
+            kemri_subcounties sc ON psc.subcountyId = sc.subcountyId
+        LEFT JOIN
+            kemri_project_wards pw ON p.id = pw.projectId
+        LEFT JOIN
+            kemri_wards w ON pw.wardId = w.wardId
             ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''}
             ORDER BY
                 p.id;
         `;
-        
+        console.log(sqlQuery)
         const [rows] = await pool.query(sqlQuery, queryParams);
         res.status(200).json(rows);
 
