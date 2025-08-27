@@ -1,3 +1,4 @@
+// backend/routes/auth.js
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
@@ -9,7 +10,6 @@ require('dotenv').config(); // Load environment variables
 const JWT_SECRET = process.env.JWT_SECRET || 'your_fallback_secret_for_dev_only_change_this_asap';
 
 router.post('/test-reach', (req, res) => {
-    console.log('Auth Router Test Reach route hit!');
     res.status(200).json({ message: 'Auth test route reached!' });
 });
 
@@ -35,7 +35,7 @@ async function getPrivilegesByRole(roleId) {
         );
         return rows.map(row => row.privilegeName);
     } catch (error) {
-        console.error(`Error fetching privileges for role ID '${roleId}':`, error);
+ 
         return [];
     }
 }
@@ -64,7 +64,6 @@ router.post('/register', async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const passwordHash = await bcrypt.hash(password, salt);
         
-        // Fetch the roleId for the given roleName, defaulting to 'user'
         const [roleRows] = await pool.query('SELECT roleId FROM kemri_roles WHERE roleName = ?', [roleName || 'user']);
         const roleId = roleRows.length > 0 ? roleRows[0].roleId : null;
 
@@ -97,11 +96,10 @@ router.post('/register', async (req, res) => {
         jwt.sign(
             payload,
             JWT_SECRET,
-            { expiresIn: '1h' },
+            { expiresIn: '24h' }, // Changed to 24 hours for a better user experience
             (err, token) => {
                 if (err) {
                     connection.rollback();
-                    console.error('Error signing JWT during registration:', err);
                     return res.status(500).json({ error: 'Server error during token generation.' });
                 }
                 res.status(201).json({ message: 'User registered successfully!', token });
@@ -114,7 +112,7 @@ router.post('/register', async (req, res) => {
         if (connection) {
             await connection.rollback();
         }
-        console.error('Error during user registration:', err);
+        
         if (err.code === 'ER_DUP_ENTRY') {
             return res.status(400).json({ error: 'User with that username or email already exists.' });
         }
@@ -151,7 +149,7 @@ router.post('/login', async (req, res) => {
 
         const user = users[0];
         if (!user.passwordHash) {
-            console.error(`User ${user.username} has no passwordHash stored.`);
+            
             return res.status(500).json({ error: 'Server configuration error: User password not set.' });
         }
 
@@ -162,7 +160,7 @@ router.post('/login', async (req, res) => {
         }
         
         const userPrivileges = await getPrivilegesByRole(user.roleId);
-console.log('uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu',user)
+
         const payload = {
             user: {
                 id: user.userId,
@@ -171,7 +169,6 @@ console.log('uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu',user)
                 roleId: user.roleId,
                 roleName: user.role,
                 privileges: userPrivileges,
-                // Conditionally include contractorId in the JWT payload
                 ...(user.contractorId && { contractorId: user.contractorId })
             }
         };
@@ -179,10 +176,10 @@ console.log('uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu',user)
         jwt.sign(
             payload,
             JWT_SECRET,
-            { expiresIn: '1h' },
+            { expiresIn: '24h' }, // Changed to 24 hours for a better user experience
             (err, token) => {
                 if (err) {
-                    console.error('Error signing JWT during login:', err);
+                    
                     return res.status(500).json({ error: 'Server error during token generation.' });
                 }
                 res.json({ token, message: 'Logged in successfully!' });
@@ -190,7 +187,7 @@ console.log('uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu',user)
         );
 
     } catch (err) {
-        console.error('Error during login:', err);
+      
         res.status(500).json({ error: 'Server error during login.' });
     }
 });
