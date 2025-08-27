@@ -390,5 +390,65 @@ router.get('/yearly-trends', async (req, res) => {
     }
 });
 
+// --- NEW: Summary KPIs Route ---
+/**
+ * @route GET /api/reports/summary-kpis
+ * @description Get high-level summary KPIs (total projects, budget, paid) with filters.
+ */
+router.get('/summary-kpis', async (req, res) => {
+    try {
+        const { finYearId, departmentId, countyId, subcountyId, wardId, status } = req.query;
+        let whereConditions = ['p.voided = 0'];
+        const queryParams = [];
+
+        if (finYearId) {
+            whereConditions.push('p.finYearId = ?');
+            queryParams.push(finYearId);
+        }
+        if (departmentId) {
+            whereConditions.push('p.departmentId = ?');
+            queryParams.push(departmentId);
+        }
+        if (countyId) {
+            whereConditions.push('pc.countyId = ?');
+            queryParams.push(countyId);
+        }
+        if (subcountyId) {
+            whereConditions.push('psc.subcountyId = ?');
+            queryParams.push(subcountyId);
+        }
+        if (wardId) {
+            whereConditions.push('pw.wardId = ?');
+            queryParams.push(wardId);
+        }
+        if (status) {
+            whereConditions.push('p.status = ?');
+            queryParams.push(status);
+        }
+
+        const sqlQuery = `
+            SELECT
+                COUNT(DISTINCT p.id) AS totalProjects,
+                SUM(p.costOfProject) AS totalBudget,
+                SUM(p.paidOut) AS totalPaid
+            FROM
+                kemri_projects p
+            LEFT JOIN
+                kemri_project_counties pc ON p.id = pc.projectId
+            LEFT JOIN
+                kemri_project_subcounties psc ON p.id = psc.projectId
+            LEFT JOIN
+                kemri_project_wards pw ON p.id = pw.projectId
+            ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''};
+        `;
+        
+        const [rows] = await pool.query(sqlQuery, queryParams);
+        res.status(200).json(rows[0] || {});
+
+    } catch (error) {
+        console.error('Error fetching summary KPIs:', error);
+        res.status(500).json({ message: 'Error fetching summary KPIs', error: error.message });
+    }
+});
 
 module.exports = router;
