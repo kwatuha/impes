@@ -8,7 +8,6 @@ const path = require('path');
 // Import all your route groups
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
-const projectRoutes = require('./routes/projectRoutes');
 const orgRoutes = require('./routes/orgRoutes');
 const strategyRoutes = require('./routes/strategic.routes');
 const participantRoutes = require('./routes/participantRoutes');
@@ -19,21 +18,6 @@ const taskRoutes = require('./routes/taskRoutes');
 const milestoneRoutes = require('./routes/milestoneRoutes');
 const taskAssigneesRoutes = require('./routes/taskAssigneesRoutes');
 const taskDependenciesRoutes = require('./routes/taskDependenciesRoutes');
-const projectConceptNoteRoutes = require('./routes/projectConceptNoteRoutes');
-const projectNeedsAssessmentRoutes = require('./routes/projectNeedsAssessmentRoutes');
-const projectFinancialsRoutes = require('./routes/projectFinancialsRoutes');
-const projectFyBreakdownRoutes = require('./routes/projectFyBreakdownRoutes');
-const projectSustainabilityRoutes = require('./routes/projectSustainabilityRoutes');
-const projectImplementationPlanRoutes = require('./routes/projectImplementationPlanRoutes');
-const projectMAndERoutes = require('./routes/projectMAndERoutes');
-const projectRisksRoutes = require('./routes/projectRisksRoutes');
-const projectStakeholdersRoutes = require('./routes/projectStakeholdersRoutes');
-const projectReadinessRoutes = require('./routes/projectReadinessRoutes');
-const projectHazardAssessmentRoutes = require('./routes/projectHazardAssessmentRoutes');
-const projectClimateRiskRoutes = require('./routes/projectClimateRiskRoutes');
-const projectEsohsgScreeningRoutes = require('./routes/projectEsohsgScreeningRoutes');
-const projectPdfRoutes = require('./routes/projectPdfRoutes');
-const { projectRouter: projectPhotoRouter, photoRouter } = require('./routes/projectPhotoRoutes');
 const contractorRoutes = require('./routes/contractorRoutes');
 const paymentRequestRoutes = require('./routes/paymentRequestRoutes');
 const contractorPhotoRoutes = require('./routes/contractorPhotoRoutes');
@@ -43,6 +27,9 @@ const workflowRoutes = require('./routes/projectWorkflowRoutes');
 const approvalLevelsRoutes = require('./routes/approvalLevelsRoutes');
 const paymentStatusRoutes = require('./routes/paymentStatusRoutes');
 
+// NEW: Consolidated reporting routes under a single router
+const reportsRouter = require('./routes/reportsRouter')
+const projectRouter = require('./routes/projectRouter')
 
 const port = 3000;
 
@@ -65,10 +52,19 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api', authenticate);
 
-// IMPORTANT: Order these from most specific to most general where there's a possibility of conflict.
-// In this case, payment-requests has a specific dynamic route that could be shadowed.
-app.use('/api/payment-requests', paymentRequestRoutes);
-app.use('/api/projects', projectRoutes);
+// IMPORTANT: Mount the new dedicated routers
+// The reports router is mounted first to prevent conflicts with project routes.
+app.use('/api/reports', reportsRouter);
+app.use('/api/projects', projectRouter);
+
+// IMPORTANT: These routes are no longer needed here as they are now consolidated
+// into the new `projectRouter` file.
+// app.use('/api/projects', projectRoutes);
+// app.use('/api/payment-requests', paymentRequestRoutes);
+// app.use('/api/projects', projectConceptNoteRoutes);
+// ... and all the other individual project-related routes
+
+// Mount other top-level routers
 app.use('/api/users', userRoutes);
 app.use('/api/organization', orgRoutes);
 app.use('/api/strategy', strategyRoutes);
@@ -80,7 +76,6 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/milestones', milestoneRoutes);
 app.use('/api/task_assignees', taskAssigneesRoutes);
 app.use('/api/task_dependencies', taskDependenciesRoutes);
-app.use('/api/project_photos', photoRouter);
 app.use('/api/contractors', contractorRoutes);
 app.use('/api/contractor-photos', contractorPhotoRoutes);
 app.use('/api/hr', hrRoutes);
@@ -88,21 +83,6 @@ app.use('/api/projects/documents', projectDocumentsRoutes);
 app.use('/api/workflows', workflowRoutes);
 app.use('/api/approval-levels', approvalLevelsRoutes);
 app.use('/api/payment-status', paymentStatusRoutes);
-app.use('/api/projects', projectConceptNoteRoutes);
-app.use('/api/projects', projectNeedsAssessmentRoutes);
-app.use('/api/projects', projectNeedsAssessmentRoutes);
-app.use('/api/projects', projectFinancialsRoutes);
-app.use('/api/projects', projectFyBreakdownRoutes);
-app.use('/api/projects', projectSustainabilityRoutes);
-app.use('/api/projects', projectImplementationPlanRoutes);
-app.use('/api/projects', projectMAndERoutes);
-app.use('/api/projects', projectRisksRoutes);
-app.use('/api/projects', projectStakeholdersRoutes);
-app.use('/api/projects', projectReadinessRoutes);
-app.use('/api/projects', projectHazardAssessmentRoutes);
-app.use('/api/projects', projectClimateRiskRoutes);
-app.use('/api/projects', projectEsohsgScreeningRoutes);
-app.use('/api/projects', projectPdfRoutes);
 
 
 app.use((err, req, res, next) => {
