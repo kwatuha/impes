@@ -329,4 +329,66 @@ router.get('/ward-summary', async (req, res) => {
     }
 });
 
+/**
+ * @route GET /api/reports/yearly-trends
+ * @description Get total budget and paid amounts grouped by financial year.
+ */
+router.get('/yearly-trends', async (req, res) => {
+    try {
+        const { departmentId, countyId, subcountyId, status } = req.query;
+        let whereConditions = ['p.voided = 0', 'p.finYearId IS NOT NULL'];
+        const queryParams = [];
+
+        if (departmentId) {
+            whereConditions.push('p.departmentId = ?');
+            queryParams.push(departmentId);
+        }
+        if (countyId) {
+            whereConditions.push('c.countyId = ?');
+            queryParams.push(countyId);
+        }
+        if (subcountyId) {
+            whereConditions.push('sc.subcountyId = ?');
+            queryParams.push(subcountyId);
+        }
+        if (status) {
+            whereConditions.push('p.status = ?');
+            queryParams.push(status);
+        }
+
+        const sqlQuery = `
+            SELECT
+                fy.finYearName AS name,
+                COUNT(p.id) AS projectCount,
+                SUM(p.costOfProject) AS totalBudget,
+                SUM(p.paidOut) AS totalPaid
+            FROM
+                kemri_projects p
+            JOIN
+                kemri_financialyears fy ON p.finYearId = fy.finYearId
+            LEFT JOIN
+                kemri_project_counties pc ON p.id = pc.projectId
+            LEFT JOIN
+                kemri_counties c ON pc.countyId = c.countyId
+            LEFT JOIN
+                kemri_project_subcounties psc ON p.id = psc.projectId
+            LEFT JOIN
+                kemri_subcounties sc ON psc.subcountyId = sc.subcountyId
+            ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''}
+            GROUP BY
+                fy.finYearName
+            ORDER BY
+                fy.finYearName;
+        `;
+        
+        const [rows] = await pool.query(sqlQuery, queryParams);
+        res.status(200).json(rows);
+
+    } catch (error) {
+        console.error('Error fetching yearly trends:', error);
+        res.status(500).json({ message: 'Error fetching yearly trends', error: error.message });
+    }
+});
+
+
 module.exports = router;
