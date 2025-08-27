@@ -206,5 +206,63 @@ router.get('/project-list-detailed', async (req, res) => {
     }
 });
 
+/**
+ * @route GET /api/reports/subcounty-summary
+ * @description Get project counts and financial metrics grouped by subcounty.
+ */
+router.get('/subcounty-summary', async (req, res) => {
+    try {
+        const { finYearId, departmentId, countyId, status } = req.query;
+        let whereConditions = ['p.voided = 0', 'psc.subcountyId IS NOT NULL'];
+        const queryParams = [];
+
+        if (finYearId) {
+            whereConditions.push('p.finYearId = ?');
+            queryParams.push(finYearId);
+        }
+        if (departmentId) {
+            whereConditions.push('p.departmentId = ?');
+            queryParams.push(departmentId);
+        }
+        if (countyId) {
+            whereConditions.push('sc.countyId = ?');
+            queryParams.push(countyId);
+        }
+        if (status) {
+            whereConditions.push('p.status = ?');
+            queryParams.push(status);
+        }
+
+        const sqlQuery = `
+            SELECT
+                sc.name AS name,
+                c.name AS countyName,
+                COUNT(p.id) AS projectCount,
+                SUM(p.costOfProject) AS totalBudget,
+                SUM(p.paidOut) AS totalPaid
+            FROM
+                kemri_projects p
+            JOIN
+                kemri_project_subcounties psc ON p.id = psc.projectId
+            JOIN
+                kemri_subcounties sc ON psc.subcountyId = sc.subcountyId
+            JOIN
+                kemri_counties c ON sc.countyId = c.countyId
+            ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''}
+            GROUP BY
+                sc.name, c.name
+            ORDER BY
+                name;
+        `;
+        
+        const [rows] = await pool.query(sqlQuery, queryParams);
+        res.status(200).json(rows);
+
+    } catch (error) {
+        console.error('Error fetching subcounty summary:', error);
+        res.status(500).json({ message: 'Error fetching subcounty summary', error: error.message });
+    }
+});
+
 
 module.exports = router;
