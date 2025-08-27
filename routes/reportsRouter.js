@@ -264,5 +264,69 @@ router.get('/subcounty-summary', async (req, res) => {
     }
 });
 
+/**
+ * @route GET /api/reports/ward-summary
+ * @description Get project counts and financial metrics grouped by ward.
+ */
+router.get('/ward-summary', async (req, res) => {
+    try {
+        const { finYearId, departmentId, countyId, subcountyId, status } = req.query;
+        let whereConditions = ['p.voided = 0', 'pw.wardId IS NOT NULL'];
+        const queryParams = [];
+
+        if (finYearId) {
+            whereConditions.push('p.finYearId = ?');
+            queryParams.push(finYearId);
+        }
+        if (departmentId) {
+            whereConditions.push('p.departmentId = ?');
+            queryParams.push(departmentId);
+        }
+        if (countyId) {
+            whereConditions.push('c.countyId = ?');
+            queryParams.push(countyId);
+        }
+        if (subcountyId) {
+            whereConditions.push('sc.subcountyId = ?');
+            queryParams.push(subcountyId);
+        }
+        if (status) {
+            whereConditions.push('p.status = ?');
+            queryParams.push(status);
+        }
+
+        const sqlQuery = `
+            SELECT
+                w.name AS name,
+                sc.name AS subcountyName,
+                c.name AS countyName,
+                COUNT(p.id) AS projectCount,
+                SUM(p.costOfProject) AS totalBudget,
+                SUM(p.paidOut) AS totalPaid
+            FROM
+                kemri_projects p
+            JOIN
+                kemri_project_wards pw ON p.id = pw.projectId
+            JOIN
+                kemri_wards w ON pw.wardId = w.wardId
+            JOIN
+                kemri_subcounties sc ON w.subcountyId = sc.subcountyId
+            JOIN
+                kemri_counties c ON sc.countyId = c.countyId
+            ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''}
+            GROUP BY
+                w.name, sc.name, c.name
+            ORDER BY
+                name;
+        `;
+        
+        const [rows] = await pool.query(sqlQuery, queryParams);
+        res.status(200).json(rows);
+
+    } catch (error) {
+        console.error('Error fetching ward summary:', error);
+        res.status(500).json({ message: 'Error fetching ward summary', error: error.message });
+    }
+});
 
 module.exports = router;
