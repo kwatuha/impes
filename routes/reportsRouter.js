@@ -319,7 +319,7 @@ router.get('/ward-summary', async (req, res) => {
             ORDER BY
                 name;
         `;
-        
+       
         const [rows] = await pool.query(sqlQuery, queryParams);
         res.status(200).json(rows);
 
