@@ -59,7 +59,7 @@ router.get('/department-summary', async (req, res) => {
 });
 
 
-// --- NEW: Project Status Summary Route ---
+// --- Project Summary Report Calls ---
 /**
  * @route GET /api/reports/project-status-summary
  * @description Get the count of projects by their status, with optional filters.
@@ -104,7 +104,6 @@ router.get('/project-status-summary', async (req, res) => {
     }
 });
 
-// --- NEW: Project Category Summary Route ---
 /**
  * @route GET /api/reports/project-category-summary
  * @description Get the count of projects by their category, with optional filters.
@@ -148,7 +147,116 @@ router.get('/project-category-summary', async (req, res) => {
     }
 });
 
-// --- NEW: Detailed Project List Route ---
+
+// --- NEW: New Routes for Frontend Visualizations ---
+
+/**
+ * @route GET /api/reports/project-cost-by-department
+ * @description Get the total budget and paid amounts grouped by department.
+ */
+router.get('/project-cost-by-department', async (req, res) => {
+    try {
+        const { finYearId, departmentId, countyId, subcountyId, wardId } = req.query;
+        let whereConditions = ['p.voided = 0'];
+        const queryParams = [];
+
+        if (finYearId) {
+            whereConditions.push('p.finYearId = ?');
+            queryParams.push(finYearId);
+        }
+        if (departmentId) {
+            whereConditions.push('p.departmentId = ?');
+            queryParams.push(departmentId);
+        }
+        
+        // This query returns total cost and paid amounts by department
+        const sqlQuery = `
+            SELECT
+                d.name AS departmentName,
+                SUM(p.costOfProject) AS totalBudget,
+                SUM(p.paidOut) AS totalPaid
+            FROM
+                kemri_projects p
+            LEFT JOIN
+                kemri_departments d ON p.departmentId = d.departmentId
+            ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''}
+            GROUP BY
+                d.name
+            ORDER BY
+                totalBudget DESC;
+        `;
+        
+        const [rows] = await pool.query(sqlQuery, queryParams);
+        res.status(200).json(rows);
+    } catch (error) {
+        console.error('Error fetching project cost by department:', error);
+        res.status(500).json({ message: 'Error fetching project cost by department', error: error.message });
+    }
+});
+
+/**
+ * @route GET /api/reports/projects-over-time
+ * @description Get the number of projects, total budget, and paid amounts grouped by financial year.
+ */
+router.get('/projects-over-time', async (req, res) => {
+    try {
+        const { departmentId, countyId, subcountyId, status } = req.query;
+        let whereConditions = ['p.voided = 0', 'p.finYearId IS NOT NULL'];
+        const queryParams = [];
+
+        if (departmentId) {
+            whereConditions.push('p.departmentId = ?');
+            queryParams.push(departmentId);
+        }
+        if (countyId) {
+            whereConditions.push('c.countyId = ?');
+            queryParams.push(countyId);
+        }
+        if (subcountyId) {
+            whereConditions.push('sc.subcountyId = ?');
+            queryParams.push(subcountyId);
+        }
+        if (status) {
+            whereConditions.push('p.status = ?');
+            queryParams.push(status);
+        }
+
+        const sqlQuery = `
+            SELECT
+                fy.finYearName AS name,
+                COUNT(p.id) AS value,
+                SUM(p.costOfProject) AS totalBudget,
+                SUM(p.paidOut) AS totalPaid
+            FROM
+                kemri_projects p
+            JOIN
+                kemri_financialyears fy ON p.finYearId = fy.finYearId
+            LEFT JOIN
+                kemri_project_counties pc ON p.id = pc.projectId
+            LEFT JOIN
+                kemri_counties c ON pc.countyId = c.countyId
+            LEFT JOIN
+                kemri_project_subcounties psc ON p.id = psc.projectId
+            LEFT JOIN
+                kemri_subcounties sc ON psc.subcountyId = sc.subcountyId
+            ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''}
+            GROUP BY
+                fy.finYearName
+            ORDER BY
+                fy.finYearName;
+        `;
+        
+        const [rows] = await pool.query(sqlQuery, queryParams);
+        res.status(200).json(rows);
+
+    } catch (error) {
+        console.error('Error fetching yearly trends:', error);
+        res.status(500).json({ message: 'Error fetching yearly trends', error: error.message });
+    }
+});
+
+
+// --- Project List & Location Reports ---
 /**
  * @route GET /api/reports/project-list-detailed
  * @description Get a detailed list of projects with filters.
@@ -184,7 +292,7 @@ router.get('/project-list-detailed', async (req, res) => {
                 fy.finYearName AS financialYearName,
                 d.name AS departmentName,
                 pc.categoryName AS projectCategory,
-                c.name as countyName, 	sc.name as subCountyName, w.name as wardName
+                c.name as countyName,   sc.name as subCountyName, w.name as wardName
             FROM
                 kemri_projects p
             LEFT JOIN
