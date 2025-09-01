@@ -241,6 +241,8 @@ router.get('/:projectId/payment-requests', async (req, res) => {
     }
 });
 
+
+
 // NEW: Route for fetching contractor photos for a project
 router.get('/:projectId/contractor-photos', async (req, res) => {
     const { projectId } = req.params;

@@ -60,7 +60,7 @@ app.use('/api/projects', projectRouter);
 // IMPORTANT: These routes are no longer needed here as they are now consolidated
 // into the new `projectRouter` file.
 // app.use('/api/projects', projectRoutes);
-// app.use('/api/payment-requests', paymentRequestRoutes);
+app.use('/api/payment-requests', paymentRequestRoutes);
 // app.use('/api/projects', projectConceptNoteRoutes);
 // ... and all the other individual project-related routes
 

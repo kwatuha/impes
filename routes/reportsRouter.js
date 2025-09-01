@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db'); // Adjust the path as needed
 
+// --- Department Summary Report Calls ---
 /**
  * @route GET /api/reports/department-summary
  * @description Get aggregated project data grouped by department
@@ -511,6 +512,100 @@ router.get('/yearly-trends', async (req, res) => {
     }
 });
 
+// --- NEWLY ADDED ROUTES ---
+
+/**
+ * @route GET /api/reports/projects-at-risk-budget
+ * @description Get the total budget for projects that are 'At Risk' or 'Delayed'.
+ */
+/**
+ * @route GET /api/reports/projects-at-risk-budget
+ * @description Get the total budget for projects at risk compared to the total project budget.
+ */
+router.get('/projects-at-risk-budget', async (req, res) => {
+    try {
+        const { finYearId, departmentId, countyId, subcountyId, wardId } = req.query;
+        let whereConditions = ['p.voided = 0'];
+        const queryParams = [];
+
+        if (finYearId) {
+            whereConditions.push('p.finYearId = ?');
+            queryParams.push(finYearId);
+        }
+        if (departmentId) {
+            whereConditions.push('p.departmentId = ?');
+            queryParams.push(departmentId);
+        }
+        // NOTE: Additional location filters can be added here if needed.
+
+        const sqlQuery = `
+            SELECT
+                SUM(p.costOfProject) AS totalProjectBudget,
+                SUM(CASE WHEN p.status IN ('At Risk', 'Delayed') THEN p.costOfProject ELSE 0 END) AS atRiskBudget
+            FROM
+                kemri_projects p
+            ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''};
+        `;
+        
+        const [rows] = await pool.query(sqlQuery, queryParams);
+        
+        // Transform the result into a format suitable for the frontend chart
+        const chartData = [
+            { name: 'Total Project Budget', value: rows[0].totalProjectBudget || 0 },
+            { name: 'At-Risk Budget', value: rows[0].atRiskBudget || 0 }
+        ];
+
+        res.status(200).json(chartData);
+
+    } catch (error) {
+        console.error('Error fetching at-risk budget report:', error);
+        res.status(500).json({ message: 'Error fetching at-risk budget report', error: error.message });
+    }
+});
+/**
+ * @route GET /api/reports/project-status-over-time
+ * @description Get the count of projects in each status, grouped by year.
+ */
+router.get('/project-status-over-time', async (req, res) => {
+    try {
+        const { finYearId, departmentId } = req.query;
+        let whereConditions = ['p.voided = 0', 'p.status IS NOT NULL', 'fy.finYearName IS NOT NULL'];
+        const queryParams = [];
+
+        if (finYearId) {
+            whereConditions.push('p.finYearId = ?');
+            queryParams.push(finYearId);
+        }
+        if (departmentId) {
+            whereConditions.push('p.departmentId = ?');
+            queryParams.push(departmentId);
+        }
+        
+        const sqlQuery = `
+            SELECT
+                fy.finYearName AS year,
+                p.status AS status,
+                COUNT(p.id) AS projectCount
+            FROM
+                kemri_projects p
+            JOIN
+                kemri_financialyears fy ON p.finYearId = fy.finYearId
+            ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''}
+            GROUP BY
+                fy.finYearName, p.status
+            ORDER BY
+                fy.finYearName;
+        `;
+        
+        const [rows] = await pool.query(sqlQuery, queryParams);
+        res.status(200).json(rows);
+
+    } catch (error) {
+        console.error('Error fetching project status over time:', error);
+        res.status(500).json({ message: 'Error fetching project status over time', error: error.message });
+    }
+});
+
 // --- NEW: Summary KPIs Route ---
 /**
  * @route GET /api/reports/summary-kpis
@@ -569,6 +664,114 @@ router.get('/summary-kpis', async (req, res) => {
     } catch (error) {
         console.error('Error fetching summary KPIs:', error);
         res.status(500).json({ message: 'Error fetching summary KPIs', error: error.message });
+    }
+});
+
+/**
+ * @route GET /api/reports/projects-by-status-and-year
+ * @description Get the count of projects in each status, grouped by financial year.
+ */
+router.get('/projects-by-status-and-year', async (req, res) => {
+    try {
+        const { departmentId, countyId, subcountyId, wardId } = req.query;
+        let whereConditions = ['p.voided = 0', 'p.status IS NOT NULL', 'fy.finYearName IS NOT NULL'];
+        const queryParams = [];
+
+        if (departmentId) {
+            whereConditions.push('p.departmentId = ?');
+            queryParams.push(departmentId);
+        }
+        if (countyId) {
+            whereConditions.push('c.countyId = ?');
+            queryParams.push(countyId);
+        }
+        if (subcountyId) {
+            whereConditions.push('sc.subcountyId = ?');
+            queryParams.push(subcountyId);
+        }
+        if (wardId) {
+            whereConditions.push('w.wardId = ?');
+            queryParams.push(wardId);
+        }
+
+        const sqlQuery = `
+            SELECT
+                fy.finYearName AS year,
+                p.status AS status,
+                COUNT(p.id) AS projectCount
+            FROM
+                kemri_projects p
+            JOIN
+                kemri_financialyears fy ON p.finYearId = fy.finYearId
+            LEFT JOIN
+                kemri_project_counties pc ON p.id = pc.projectId
+            LEFT JOIN
+                kemri_counties c ON pc.countyId = c.countyId
+            LEFT JOIN
+                kemri_project_subcounties psc ON p.id = psc.projectId
+            LEFT JOIN
+                kemri_subcounties sc ON psc.subcountyId = sc.subcountyId
+            LEFT JOIN
+                kemri_project_wards pw ON p.id = pw.projectId
+            LEFT JOIN
+                kemri_wards w ON pw.wardId = w.wardId
+            ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''}
+            GROUP BY
+                fy.finYearName, p.status
+            ORDER BY
+                fy.finYearName, p.status;
+        `;
+        
+        const [rows] = await pool.query(sqlQuery, queryParams);
+        res.status(200).json(rows);
+
+    } catch (error) {
+        console.error('Error fetching projects by status and year:', error);
+        res.status(500).json({ message: 'Error fetching projects by status and year', error: error.message });
+    }
+});
+
+/**
+ * @route GET /api/reports/financial-status-by-project-status
+ * @description Get the total budget and paid amounts grouped by project status.
+ */
+router.get('/financial-status-by-project-status', async (req, res) => {
+    try {
+        const { finYearId, departmentId, countyId, subcountyId, wardId } = req.query;
+        let whereConditions = ['p.voided = 0', 'p.status IS NOT NULL'];
+        const queryParams = [];
+
+        if (finYearId) {
+            whereConditions.push('p.finYearId = ?');
+            queryParams.push(finYearId);
+        }
+        if (departmentId) {
+            whereConditions.push('p.departmentId = ?');
+            queryParams.push(departmentId);
+        }
+        // Location filters can be added here with appropriate joins
+        // For example, if (countyId) { whereConditions.push('c.countyId = ?'); queryParams.push(countyId); }
+
+        const sqlQuery = `
+            SELECT
+                p.status AS status,
+                SUM(p.costOfProject) AS totalBudget,
+                SUM(p.paidOut) AS totalPaid
+            FROM
+                kemri_projects p
+            ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''}
+            GROUP BY
+                p.status
+            ORDER BY
+                p.status;
+        `;
+        
+        const [rows] = await pool.query(sqlQuery, queryParams);
+        res.status(200).json(rows);
+
+    } catch (error) {
+        console.error('Error fetching financial status by project status:', error);
+        res.status(500).json({ message: 'Error fetching financial status by project status', error: error.message });
     }
 });
 

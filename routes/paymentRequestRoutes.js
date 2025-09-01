@@ -365,4 +365,54 @@ router.get('/request/:requestId', auth, async (req, res) => {
     }
 });
 
+// @route   PUT /api/payment-requests/:requestId/status
+// @desc    Update the status of a payment request.
+// @access  Private (requires 'payment_request.update' privilege)
+router.put('/:requestId/status', auth, privilege(['payment_request.update']), async (req, res) => {
+    const { requestId } = req.params;
+    const { status, notes } = req.body;
+    
+    if (!status) {
+        return res.status(400).json({ message: 'Status is required' });
+    }
+    
+    let connection;
+    try {
+        connection = await db.getConnection();
+        
+        // First verify the request exists
+        const [requestCheck] = await connection.query(
+            'SELECT * FROM kemri_project_payment_requests WHERE requestId = ? AND voided = 0',
+            [requestId]
+        );
+        
+        if (requestCheck.length === 0) {
+            return res.status(404).json({ message: 'Payment request not found' });
+        }
+        
+        // Update the status
+        const [result] = await connection.query(
+            'UPDATE kemri_project_payment_requests SET paymentStatusId = ?, updatedAt = NOW() WHERE requestId = ?',
+            [status, requestId]
+        );
+        
+        if (result.affectedRows > 0) {
+            // Log the status change
+            await connection.query(
+                'INSERT INTO kemri_payment_approval_history (requestId, action, actionByUserId, notes, actionDate) VALUES (?, ?, ?, ?, NOW())',
+                [requestId, `Status updated to ${status}`, req.user.id, notes || `Status updated to ${status}`]
+            );
+            
+            res.status(200).json({ message: 'Payment request status updated successfully' });
+        } else {
+            res.status(500).json({ message: 'Failed to update payment request status' });
+        }
+    } catch (error) {
+        console.error('Error updating payment request status:', error);
+        res.status(500).json({ message: 'Error updating payment request status', error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 module.exports = router;
